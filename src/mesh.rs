@@ -11,6 +11,7 @@ pub struct Cell {
     pub dx: f64,
     pub dy: f64,
     pub dz: f64,
+    pub dn: f64, pub ds: f64, pub de: f64, pub dw: f64, pub dc: f64, pub df: f64,
     pub T: f64,
     pub rho: f64,
     pub cp: f64,
@@ -32,6 +33,7 @@ impl Default for Cell {
             dx: 0.,
             dy: 0.,
             dz: 0.,
+            dn: 0., ds: 0., de: 0., dw: 0., dc: 0., df: 0.,
             T: 0.0,
             rho: 1.0,
             cp: 0.1,
@@ -105,6 +107,26 @@ impl Mesh {
         }
     }
 
+    pub fn f(& self, ii:&usize) -> &Cell {
+        let (i,j,k) = self.ijk(ii);
+            if j < self.ny - 1 {
+            let iii = self.ii((&i,&(&j+1),&k));
+            &self.grid[iii]
+        } else {
+            &self.grid[*ii]
+        }
+    }
+
+    pub fn c(& self, ii:&usize) -> &Cell {
+        let (i,j,k) = self.ijk(ii);
+        if j > 0 {
+            let iii = self.ii((&i,&(&j-1),&k));
+            &self.grid[iii]
+        } else {
+            &self.grid[*ii]
+        }
+    }
+
     pub fn update(&mut self, x:&DVector<f64>) {
         for ii in 0..self.grid.len() {
             self.grid[ii].T = x[ii]; // TODO: needs some form of indexing once we have more equations
@@ -126,6 +148,46 @@ impl Mesh {
                     mesh.grid[index].r2 = origin + Vector3::new((i+1) as f64 * dx, (j+1) as f64 * dy, (k+1) as f64 * dz);
 
                     mesh.grid[index].r = (mesh.grid[index].r1 + mesh.grid[index].r2)/2.; // r meeds to be vector
+                }
+            }
+        }
+        for i in 0..nx {
+            for j in 0..ny {
+                for k in 0..nz {
+                    let (de, dw, dn, ds, dc, df);
+                    let index: usize = mesh.ii((&i,&j,&k));
+                    let p = mesh.p(&index);
+                    if i == 0 {
+                        dw = p.dx;
+                    } else {
+                        dw = (p.r - mesh.w(&index).r)[0];
+                    }
+                    if i == nx-1 {
+                        de = p.dx;
+                    } else {
+                        de = (mesh.e(&index).r - p.r)[0];
+                    }
+                    if j == 0 {
+                        dc = p.dy;
+                    } else {
+                        dc = (p.r - mesh.s(&index).r)[1];
+                    }
+                    if j == ny-1 {
+                        df = p.dy;
+                    } else {
+                        df = (mesh.n(&index).r - p.r)[1];
+                    }
+                    if k == 0 {
+                        ds = p.dz;
+                    } else {
+                        ds = (p.r - mesh.s(&index).r)[2];
+                    }
+                    if k == nz-1 {
+                        dn = p.dz;
+                    } else {
+                        dn = (mesh.n(&index).r - p.r)[2];
+                    }
+                    mesh.grid[index] = Cell{dn, ds, de, dw, dc, df, ..mesh.grid[index]}
                 }
             }
         }
