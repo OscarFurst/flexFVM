@@ -1,7 +1,7 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
 
 extern crate nalgebra as na;
-use na::{Vector3};
+use na::{Vector3,DVector};
 use std::fmt;
 
 #[allow(non_snake_case)]
@@ -91,9 +91,9 @@ impl Mesh {
         &mut self.grid[iii]
     }
 
-    pub fn update(&mut self, x:&Vec<f64>) {
-        for (ii, val) in x.iter().enumerate() {
-            self.grid[ii].T = *val;
+    pub fn update(&mut self, x:&DVector<f64>) {
+        for ii in 0..self.grid.len() {
+            self.grid[ii].T = x[ii]; // TODO: needs some form of indexing once we have more equations
         }
     }
 
