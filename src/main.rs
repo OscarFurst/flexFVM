@@ -1,5 +1,5 @@
 extern crate nalgebra as na;
-use hello::mesh::*;
+use flexFVM::mesh::*;
 use na::DVector;
 use std::time::{Instant};
 
@@ -36,7 +36,6 @@ fn func(_t:&f64, x:&DVector<f64>, mesh:&mut Mesh) -> DVector<f64> {
                 (mesh.n(&ii).T - mesh.p(&ii).T) / (mesh.n(&ii).r - mesh.p(&ii).r)[2] * (mesh.n(&ii).lambda + mesh.p(&ii).lambda) / 2. - 
                 (mesh.p(&ii).T - mesh.s(&ii).T) / (mesh.p(&ii).r - mesh.s(&ii).r)[2] * (mesh.p(&ii).lambda + mesh.s(&ii).lambda) / 2. );
         }
-        //println!("{} {}", radial, axial);
         y[ii] = radial + axial;
     }
     y
@@ -46,15 +45,14 @@ fn main() {
     let (nx, ny, nz) = (100, 1, 40);
     let mut mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz);
 
-    let t_end:f64 = 10000.;
+    let t_end:f64 = 100.;
     let mut t = 0.;
     let mut it = 0;
     let h:f64 = 0.01;
-    //let mut x = vec![0.;nx*ny*nz];
     let mut x = DVector::from_element(nx*ny*nz, 0.);
     let start = Instant::now();
     while t < t_end {
-        println!("Time = {} s", t);
+        //println!("Time = {} s", t);
         mesh.update(&x);
         let y = func(&t, &x, &mut mesh);
         x = x + h * &y;
@@ -64,7 +62,7 @@ fn main() {
         }
         t = t+h;
         it += 1;
-        println!("{:?}", mesh);
+        //println!("{:?}", mesh);
     }
     let duration = start.elapsed();
     println!("Elapsed time : {} ms. Iterations : {}", duration.as_millis(), it);
