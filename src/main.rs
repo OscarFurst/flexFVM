@@ -1,6 +1,5 @@
-extern crate nalgebra as na;
-use flexFVM::mesh::*;
-use na::DVector;
+use flex_fvm::mesh::*;
+use nalgebra::DVector;
 use std::time::{Instant};
 
 fn func(_t:&f64, x:&DVector<f64>, mesh:&mut Mesh) -> DVector<f64> {
@@ -10,31 +9,36 @@ fn func(_t:&f64, x:&DVector<f64>, mesh:&mut Mesh) -> DVector<f64> {
         let (i,_j,k) = mesh.ijk(&ii);
         let radial;
         let axial;
+        let p = mesh.p(&ii);
+        let e = mesh.e(&ii);
+        let w = mesh.w(&ii);
+        let n = mesh.n(&ii);
+        let s = mesh.s(&ii);
         if i == 0 {
-            axial = mesh.p(&ii).rho * mesh.p(&ii).cp / mesh.p(&ii).dx * (
-                (mesh.e(&ii).T - mesh.p(&ii).T) / (mesh.e(&ii).r - mesh.p(&ii).r)[0] * (mesh.e(&ii).lambda + mesh.p(&ii).lambda) / 2. - 
-                (mesh.p(&ii).T - 100.         ) / (mesh.p(&ii).r - mesh.p(&ii).r1)[0]/2. * (mesh.p(&ii).lambda + mesh.p(&ii).lambda) / 2. );
+            axial = p.rho * p.cp / p.dx * (
+                (e.T - p.T) / (e.r - p.r)[0] * (e.lambda + p.lambda) / 2. - 
+                (p.T - 100.) / (p.r - p.r1)[0]/2. * (p.lambda + p.lambda) / 2. );
         } else if i == mesh.nx-1 {
-            axial = mesh.p(&ii).rho * mesh.p(&ii).cp / mesh.p(&ii).dx * (
-                (0.            - mesh.p(&ii).T) / (mesh.p(&ii).r2 - mesh.p(&ii).r)[0]/2. * (mesh.p(&ii).lambda + mesh.p(&ii).lambda) / 2. - 
-                (mesh.p(&ii).T - mesh.w(&ii).T) / (mesh.p(&ii).r - mesh.w(&ii).r)[0] * (mesh.p(&ii).lambda + mesh.w(&ii).lambda) / 2. );
+            axial = p.rho * p.cp / p.dx * (
+                (0. - p.T) / (p.r2 - p.r)[0]/2. * (p.lambda + p.lambda) / 2. - 
+                (p.T - w.T) / (p.r - w.r)[0] * (p.lambda + w.lambda) / 2. );
         } else {
-            axial = mesh.p(&ii).rho * mesh.p(&ii).cp / mesh.p(&ii).dx * (
-                (mesh.e(&ii).T - mesh.p(&ii).T) / (mesh.e(&ii).r - mesh.p(&ii).r)[0] * (mesh.e(&ii).lambda + mesh.p(&ii).lambda) / 2. - 
-                (mesh.p(&ii).T - mesh.w(&ii).T) / (mesh.p(&ii).r - mesh.w(&ii).r)[0] * (mesh.p(&ii).lambda + mesh.w(&ii).lambda) / 2. );
+            axial = p.rho * p.cp / p.dx * (
+                (e.T - p.T) / (e.r - p.r)[0] * (e.lambda + p.lambda) / 2. - 
+                (p.T - w.T) / (p.r - w.r)[0] * (p.lambda + w.lambda) / 2. );
         }
         if k == 0 {
-            radial = mesh.p(&ii).rho * mesh.p(&ii).cp / mesh.p(&ii).dy * (
-                (mesh.n(&ii).T - mesh.p(&ii).T) / (mesh.n(&ii).r - mesh.p(&ii).r)[2] * (mesh.n(&ii).lambda + mesh.p(&ii).lambda) / 2. - 
+            radial = p.rho * p.cp / p.dy * (
+                (n.T - p.T) / (n.r - p.r)[2] * (n.lambda + p.lambda) / 2. - 
                 (0.) / 2. );
         } else if k == mesh.nz-1 {
-            radial = mesh.p(&ii).rho * mesh.p(&ii).cp / mesh.p(&ii).dy * (
+            radial = p.rho * p.cp / p.dy * (
                 (0.) / 2. - 
-                (mesh.p(&ii).T - mesh.s(&ii).T) / (mesh.p(&ii).r - mesh.s(&ii).r)[2] * (mesh.p(&ii).lambda + mesh.s(&ii).lambda) / 2. );
+                (p.T - s.T) / (p.r - s.r)[2] * (p.lambda + s.lambda) / 2. );
         } else {
-            radial = mesh.p(&ii).rho * mesh.p(&ii).cp / mesh.p(&ii).dy * (
-                (mesh.n(&ii).T - mesh.p(&ii).T) / (mesh.n(&ii).r - mesh.p(&ii).r)[2] * (mesh.n(&ii).lambda + mesh.p(&ii).lambda) / 2. - 
-                (mesh.p(&ii).T - mesh.s(&ii).T) / (mesh.p(&ii).r - mesh.s(&ii).r)[2] * (mesh.p(&ii).lambda + mesh.s(&ii).lambda) / 2. );
+            radial = p.rho * p.cp / p.dy * (
+                (n.T - p.T) / (n.r - p.r)[2] * (n.lambda + p.lambda) / 2. - 
+                (p.T - s.T) / (p.r - s.r)[2] * (p.lambda + s.lambda) / 2. );
         }
         y[ii] = radial + axial;
     }
@@ -42,7 +46,7 @@ fn func(_t:&f64, x:&DVector<f64>, mesh:&mut Mesh) -> DVector<f64> {
 }
 
 fn main() {
-    let (nx, ny, nz) = (100, 1, 40);
+    let (nx, ny, nz) = (10, 1, 10);
     let mut mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz);
 
     let t_end:f64 = 100.;

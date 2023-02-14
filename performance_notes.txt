@@ -2,3 +2,6 @@ Performance notes :
 
 Mesh composed of Cell structures which contain the informations about position and quantities inside the cell : 
 for 10000 iterations (100s with 0.01s step) on a 100x1x40 mesh : 98009 ms (debug) - 4022 ms, 4019 ms, 4020 ms (release)
+
+After optimization :
+for 10000 iterations (100s with 0.01s step) on a 100x1x40 mesh : 67848 ms (debug) - 1730 ms, 1817 ms, 1767 ms (release)

@@ -1,7 +1,5 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
-
-extern crate nalgebra as na;
-use na::{Vector3,DVector};
+use nalgebra::{Vector3,DVector};
 use std::fmt;
 
 #[allow(non_snake_case)]
@@ -63,32 +61,48 @@ impl Mesh {
         (i,j,k)
     }
 
-    pub fn p(&mut self, ii:&usize) -> &mut Cell {
-        &mut self.grid[*ii]
+    pub fn p(& self, ii:&usize) -> &Cell {
+        &self.grid[*ii]
     }
 
-    pub fn n(&mut self, ii:&usize) -> &mut Cell {
+    pub fn n(& self, ii:&usize) -> &Cell {
         let (i,j,k) = self.ijk(ii);
-        let iii = self.ii((&i,&j,&(&k+1)));
-        &mut self.grid[iii]
+        if k < self.nz - 1 {
+            let iii = self.ii((&i,&j,&(&k+1)));
+            &self.grid[iii]
+        } else {
+            &self.grid[*ii]
+        }
     }
 
-    pub fn s(&mut self, ii:&usize) -> &mut Cell {
+    pub fn s(& self, ii:&usize) -> &Cell {
         let (i,j,k) = self.ijk(ii);
-        let iii = self.ii((&i,&j,&(&k-1)));
-        &mut self.grid[iii]
+        if k > 0 {
+            let iii = self.ii((&i,&j,&(&k-1)));
+            &self.grid[iii]
+        } else {
+            &self.grid[*ii]
+        }
     }
 
-    pub fn e(&mut self, ii:&usize) -> &mut Cell {
+    pub fn e(& self, ii:&usize) -> &Cell {
         let (i,j,k) = self.ijk(ii);
-        let iii = self.ii((&(&i+1),&j,&k));
-        &mut self.grid[iii]
+            if i < self.nx - 1 {
+            let iii = self.ii((&(&i+1),&j,&k));
+            &self.grid[iii]
+        } else {
+            &self.grid[*ii]
+        }
     }
 
-    pub fn w(&mut self, ii:&usize) -> &mut Cell {
+    pub fn w(& self, ii:&usize) -> &Cell {
         let (i,j,k) = self.ijk(ii);
-        let iii = self.ii((&(&i-1),&j,&k));
-        &mut self.grid[iii]
+        if i > 0 {
+            let iii = self.ii((&(&i-1),&j,&k));
+            &self.grid[iii]
+        } else {
+            &self.grid[*ii]
+        }
     }
 
     pub fn update(&mut self, x:&DVector<f64>) {
