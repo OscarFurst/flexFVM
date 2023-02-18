@@ -1,130 +1,43 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
 use nalgebra::{Vector3,DVector};
-use std::fmt;
+use crate::cell::*;
+use std::{fmt, fs::DirBuilder};
 
-#[allow(non_snake_case)]
-#[derive(Clone)]
-pub struct Cell {
-    pub r: Vector3<f64>,
-    pub r1: Vector3<f64>,
-    pub r2: Vector3<f64>,
-    pub dx: f64,
-    pub dy: f64,
-    pub dz: f64,
-    pub dn: f64, pub ds: f64, pub de: f64, pub dw: f64, pub dc: f64, pub df: f64,
-    pub T: f64,
-    pub rho: f64,
-    pub cp: f64,
-    pub lambda: f64,
-}
-
-impl fmt::Debug for Cell {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:.2}", self.T)
-    }
-}
-
-impl Default for Cell {
-    fn default() -> Self {
-        Cell {
-            r: Vector3::new(0.,0.,0.),
-            r1: Vector3::new(0.,0.,0.),
-            r2: Vector3::new(0.,0.,0.),
-            dx: 0.,
-            dy: 0.,
-            dz: 0.,
-            dn: 0., ds: 0., de: 0., dw: 0., dc: 0., df: 0.,
-            T: 0.0,
-            rho: 1.0,
-            cp: 0.1,
-            lambda: 0.01
-        }
-    }
-}
-
-#[allow(dead_code)]
+#[allow(dead_code,non_snake_case)]
 pub struct Mesh {
     pub grid: Vec<Cell>,
+    // amount os simulated cells along each dimension
     pub nx: usize,
     pub ny: usize,
     pub nz: usize,
+    pub n: usize, // simulated cells
+    pub N: usize, // all cells, incl. boundary conditions
+    pub id: usize,
+    pub n_eq: usize,
+    //pub r1: Vector3<f64>,
+    //pub r2: Vector3<f64>,
 }
 
 #[allow(dead_code)]
 impl Mesh {
-    pub fn ii(&self, (i,j,k):(&usize,&usize,&usize)) -> usize {
+    pub fn get_cells(&self) -> &[Cell] {
+        &self.grid[self.ii((1,1,1))..=self.ii((self.nx,self.ny,self.nz))]
+    }
+    pub fn get_mut_cells(&mut self) -> &mut[Cell] {
+        let i0 = self.ii((1,1,1));
+        let i1 = self.ii((self.nx,self.ny,self.nz));
+        &mut self.grid[i0..=i1]
+    }
+
+    pub fn ii(&self, (i,j,k):(usize,usize,usize)) -> usize {
         self.nx*self.ny*k + self.nx*j + i
     }
 
-    pub fn ijk(&self, ii:&usize) -> (usize, usize, usize) {
+    pub fn ijk(&self, ii:usize) -> (usize, usize, usize) {
         let k = ii / (self.nx * self.ny);
         let j = ii % (self.nx * self.ny) / self.nx;
         let i = ii % (self.nx * self.ny) % self.nx;
         (i,j,k)
-    }
-
-    pub fn p(& self, ii:&usize) -> &Cell {
-        &self.grid[*ii]
-    }
-
-    pub fn n(& self, ii:&usize) -> &Cell {
-        let (i,j,k) = self.ijk(ii);
-        if k < self.nz - 1 {
-            let iii = self.ii((&i,&j,&(&k+1)));
-            &self.grid[iii]
-        } else {
-            &self.grid[*ii]
-        }
-    }
-
-    pub fn s(& self, ii:&usize) -> &Cell {
-        let (i,j,k) = self.ijk(ii);
-        if k > 0 {
-            let iii = self.ii((&i,&j,&(&k-1)));
-            &self.grid[iii]
-        } else {
-            &self.grid[*ii]
-        }
-    }
-
-    pub fn e(& self, ii:&usize) -> &Cell {
-        let (i,j,k) = self.ijk(ii);
-            if i < self.nx - 1 {
-            let iii = self.ii((&(&i+1),&j,&k));
-            &self.grid[iii]
-        } else {
-            &self.grid[*ii]
-        }
-    }
-
-    pub fn w(& self, ii:&usize) -> &Cell {
-        let (i,j,k) = self.ijk(ii);
-        if i > 0 {
-            let iii = self.ii((&(&i-1),&j,&k));
-            &self.grid[iii]
-        } else {
-            &self.grid[*ii]
-        }
-    }
-
-    pub fn f(& self, ii:&usize) -> &Cell {
-        let (i,j,k) = self.ijk(ii);
-            if j < self.ny - 1 {
-            let iii = self.ii((&i,&(&j+1),&k));
-            &self.grid[iii]
-        } else {
-            &self.grid[*ii]
-        }
-    }
-
-    pub fn c(& self, ii:&usize) -> &Cell {
-        let (i,j,k) = self.ijk(ii);
-        if j > 0 {
-            let iii = self.ii((&i,&(&j-1),&k));
-            &self.grid[iii]
-        } else {
-            &self.grid[*ii]
-        }
     }
 
     pub fn update(&mut self, x:&DVector<f64>) {
@@ -133,61 +46,90 @@ impl Mesh {
         }
     }
 
-    pub fn generate(r1:(f64,f64,f64), r2:(f64,f64,f64), nx:usize, ny:usize, nz:usize) -> Mesh{
-        let mut mesh = Mesh{grid: vec![Cell{..Default::default()}; nx*ny*nz], nx, ny, nz};
-        let origin = Vector3::new(r1.0,r1.1,r1.2);
+    #[allow(non_snake_case)]
+    pub fn generate(r1:(f64,f64,f64), r2:(f64,f64,f64), nx:usize, ny:usize, nz:usize, id: usize, boundary_conditions:Vec<BoundaryDirection>) -> Mesh{
+        // nx, ny, nz is the size of the mesh without the boundary cells
+        // NX, NY, NZ adds a layer of boundary cells around the domain
+        let (NX,NY,NZ) = (nx+2,ny+2,nz+2);
         let (dx, dy, dz) = ((r2.0-r1.0)/nx as f64, (r2.1-r1.1)/ny as f64, (r2.2-r1.2)/nz as f64);
-        for i in 0..nx {
-            for j in 0..ny {
-                for k in 0..nz {
-                    let index: usize = mesh.ii((&i,&j,&k));
-                    mesh.grid[index].dx = dx;
-                    mesh.grid[index].dy = dy;
-                    mesh.grid[index].dz = dz;
-                    mesh.grid[index].r1 = origin + Vector3::new(i as f64 * dx, j as f64 * dy, k as f64 * dz);
-                    mesh.grid[index].r2 = origin + Vector3::new((i+1) as f64 * dx, (j+1) as f64 * dy, (k+1) as f64 * dz);
-
+        let mut mesh = Mesh{grid: vec![Cell{dx, dy, dz, layer_id: id, ..Default::default()}; NX*NY*NZ], nx, ny, nz, n:nx*ny*nz, N:NX*NY*NZ, id, n_eq: 1};
+        let origin = Vector3::new(r1.0,r1.1,r1.2);
+        for i in 0..NX {
+            for j in 0..NY {
+                for k in 0..NZ {
+                    let index: usize = mesh.ii((i,j,k));
+                    mesh.grid[index].id = index;
+                    mesh.grid[index].r1 = origin + Vector3::new((i as f64 -1.)* dx, (j as f64 -1.) * dy, (k as f64 -1.) * dz);
+                    mesh.grid[index].r2 = origin + Vector3::new(i as f64 * dx, j as f64 * dy, k as f64 * dz);
                     mesh.grid[index].r = (mesh.grid[index].r1 + mesh.grid[index].r2)/2.; // r meeds to be vector
-                }
-            }
-        }
-        for i in 0..nx {
-            for j in 0..ny {
-                for k in 0..nz {
-                    let (de, dw, dn, ds, dc, df);
-                    let index: usize = mesh.ii((&i,&j,&k));
-                    let p = mesh.p(&index);
                     if i == 0 {
-                        dw = p.dx;
+                        for boundary in &boundary_conditions {
+                            if let BoundaryDirection::West(bc) = *boundary {
+                                if let BoundaryCondition::Dirichlet(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i+1,j,k))))));
+                                } else if let BoundaryCondition::Neumann(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i+1,j,k))))));
+                                }
+                            }
+                        }
+                    } else if i == NX-1 {
+                        for boundary in &boundary_conditions {
+                            if let BoundaryDirection::East(bc) = *boundary {
+                                if let BoundaryCondition::Dirichlet(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i-1,j,k))))));
+                                } else if let BoundaryCondition::Neumann(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i-1,j,k))))));
+                                }
+                            }
+                        }
+                    } else if j == 0 {
+                        for boundary in &boundary_conditions {
+                            if let BoundaryDirection::Close(bc) = *boundary {
+                                if let BoundaryCondition::Dirichlet(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i,j+1,k))))));
+                                } else if let BoundaryCondition::Neumann(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i,j+1,k))))));
+                                }
+                            }
+                        }
+                    } else if j == NY-1 {
+                        for boundary in &boundary_conditions {
+                            if let BoundaryDirection::Far(bc) = *boundary {
+                                if let BoundaryCondition::Dirichlet(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i,j-1,k))))));
+                                } else if let BoundaryCondition::Neumann(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i,j-1,k))))));
+                                }
+                            }
+                        }
+                    } else if k == 0 {
+                        for boundary in &boundary_conditions {
+                            if let BoundaryDirection::South(bc) = *boundary {
+                                if let BoundaryCondition::Dirichlet(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i,j,k+1))))));
+                                } else if let BoundaryCondition::Neumann(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i,j,k+1))))));
+                                }
+                            }
+                        }
+                    } else if k == NZ-1 {
+                        for boundary in &boundary_conditions {
+                            if let BoundaryDirection::North(bc) = *boundary {
+                                if let BoundaryCondition::Dirichlet(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i,j,k-1))))));
+                                } else if let BoundaryCondition::Neumann(value, node) = bc {
+                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i,j,k-1))))));
+                                }
+                            }
+                        }
                     } else {
-                        dw = (p.r - mesh.w(&index).r)[0];
+                        mesh.grid[index].east = (id, mesh.ii((i+1,j,k)));
+                        mesh.grid[index].west = (id, mesh.ii((i-1,j,k)));
+                        mesh.grid[index].far = (id, mesh.ii((i,j+1,k)));
+                        mesh.grid[index].close = (id, mesh.ii((i,j-1,k)));
+                        mesh.grid[index].north = (id, mesh.ii((i,j,k+1)));
+                        mesh.grid[index].south = (id, mesh.ii((i,j,k-1)));
                     }
-                    if i == nx-1 {
-                        de = p.dx;
-                    } else {
-                        de = (mesh.e(&index).r - p.r)[0];
-                    }
-                    if j == 0 {
-                        dc = p.dy;
-                    } else {
-                        dc = (p.r - mesh.s(&index).r)[1];
-                    }
-                    if j == ny-1 {
-                        df = p.dy;
-                    } else {
-                        df = (mesh.n(&index).r - p.r)[1];
-                    }
-                    if k == 0 {
-                        ds = p.dz;
-                    } else {
-                        ds = (p.r - mesh.s(&index).r)[2];
-                    }
-                    if k == nz-1 {
-                        dn = p.dz;
-                    } else {
-                        dn = (mesh.n(&index).r - p.r)[2];
-                    }
-                    mesh.grid[index] = Cell{dn, ds, de, dw, dc, df, ..mesh.grid[index]}
                 }
             }
         }
@@ -198,8 +140,8 @@ impl Mesh {
 impl fmt::Debug for Mesh {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[ ")?;
-        for i in 0..self.nx {
-            let ii = self.ii((&i,&0,&0));
+        for i in 0..self.nx+2 {
+            let ii = self.ii((i,0,0));
             write!(f, "{:.2} ", self.grid[ii].T)?;
         }
         write!(f, "]")
@@ -212,24 +154,24 @@ mod tests {
     #[test]
     fn test_ii() {
         let (nx, ny, nz) = (5, 4, 3);
-        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz);
-        assert_eq!(mesh.ii((&0,&0,&0)), 0);
-        assert_eq!(mesh.ii((&1,&0,&0)), 1);
-        assert_eq!(mesh.ii((&0,&1,&0)), 5);
-        assert_eq!(mesh.ii((&0,&0,&1)), 20);
-        assert_eq!(mesh.ii((&4,&3,&2)), 59);
+        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz, 1, Vec::new());
+        assert_eq!(mesh.ii((0,0,0)), 0);
+        assert_eq!(mesh.ii((1,0,0)), 1);
+        assert_eq!(mesh.ii((0,1,0)), 5);
+        assert_eq!(mesh.ii((0,0,1)), 20);
+        assert_eq!(mesh.ii((4,3,2)), 59);
     }
     #[test]
     fn test_ijk() {
         let (nx, ny, nz) = (5, 4, 3);
-        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz);
-        assert_eq!(mesh.ijk(&(nx*ny*nz-1)), (4,3,2));
-        assert_eq!(mesh.ijk(&(1)), (1,0,0));
+        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz, 1, Vec::new());
+        assert_eq!(mesh.ijk(nx*ny*nz-1), (4,3,2));
+        assert_eq!(mesh.ijk(1), (1,0,0));
     }
     #[test]
     fn test_mesh() {
         let (nx, ny, nz) = (4, 4, 4);
-        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz);
+        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz, 1, Vec::new());
         assert_eq!(mesh.grid[63].r2, Vector3::new(1.,1.,1.));
         assert_eq!(mesh.grid[63].r1, Vector3::new(0.75,0.75,0.75));
     }
