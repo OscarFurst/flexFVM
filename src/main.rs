@@ -11,7 +11,7 @@ fn main() {
         BoundaryCondition::Neumann(0.),
         BoundaryCondition::Neumann(0.)
         ];
-    let (nx, ny, nz) = (6, 1, 1);
+    let (nx, ny, nz) = (100, 1, 40);
     let mut block = solver::Domain::new();
     block.add_layer((0.,0.,0.), (1.,1.,1.), nx, ny, nz, boundary_conditions);
 

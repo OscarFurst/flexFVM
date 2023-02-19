@@ -1,6 +1,6 @@
 // for now all cells are rectangular parallelepipeds
 use nalgebra::{Vector3,Point3};
-use std::fmt;
+use std::{fmt, f64::EPSILON};
 
 #[allow(non_snake_case)]
 #[derive(Clone)]
@@ -49,8 +49,10 @@ impl Cell {
     }
 
     pub fn face_on_plane(&self, point:&Point3<f64>, normal:&Vector3<f64>) -> Option<&Face> {
+        //println!("Testing cell {:?}", self.r);
         for face in &self.faces {
-            if (face.center - point).dot(normal) == 0. {
+            //println!("   face {:?} ; res = {}", face.center, (face.center - point).dot(normal));
+            if (face.center - point).dot(normal).abs() <= f64::EPSILON {
                 return Some(face);
             }
         }
@@ -90,7 +92,7 @@ impl Face {
     fn new(vertices:&Vec<Point3<f64>>) -> Self {
         // TODO: only implemented for rectangle
         let vects:Vector3<f64> = vertices.iter().map(|v| v.coords).sum(); // this is so ugly
-        let center: Point3<f64> = Point3::new(0.,0.,0.) + vects / vertices.len() as f64;
+        let center: Point3<f64> = Point3::new(0.,0.,0.) + vects / vertices.len() as f64; // I just want to average...
         let newface = Face{
             vertices: vertices.clone(),
             center: center,

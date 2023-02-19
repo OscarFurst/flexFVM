@@ -46,13 +46,13 @@ impl Domain {
                     if (neighbor_layer_index,neighbor_cell_index) == (layer_index,cell_index) {continue}
                     // could be any of its faces
                     for neighbor_face_index in 0..self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces.len() {
-                        if self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces[neighbor_face_index].center == self.layers[layer_index].grid[cell_index].faces[face_index].center {
+                        // check if the face centers coincide
+                        if (self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces[neighbor_face_index].center - self.layers[layer_index].grid[cell_index].faces[face_index].center).norm().abs() < f64::EPSILON {
                             self.layers[layer_index].grid[cell_index].faces[face_index].neighbor = Some(Neighbor{
                                 index: (neighbor_layer_index,neighbor_cell_index),
                                 dr: self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r,
                                 distance: (self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r).norm(),
                             });
-                            if (self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r).norm() == 0. {println!("thats not cool {} {}", self.layers[neighbor_layer_index].grid[neighbor_cell_index].r,self.layers[layer_index].grid[cell_index].r)}
                         }
                     }
                 }

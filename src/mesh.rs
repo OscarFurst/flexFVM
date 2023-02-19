@@ -39,12 +39,11 @@ impl Mesh {
         // generates a regular grid of rectangular cells
         // TODO: I could not think of an elegant way to pass boundary conditions
         // in the current state, the order in which they are passed are very important!
-        let (dx, dy, dz) = ((r2.0-r1.0)/nx as f64, (r2.1-r1.1)/ny as f64, (r2.2-r1.2)/nz as f64);
-        let ex = Vector3::new(dx, 0., 0.);
-        let ey = Vector3::new(0., dy, 0.);
-        let ez = Vector3::new(0., 0., dz);
         let origin = Point3::new(r1.0,r1.1,r1.2);
         let ending = Point3::new(r2.0,r2.1,r2.2);
+        let ex = (ending-origin)[0] / nx as f64 * Vector3::new(1.,0.,0.);
+        let ey = (ending-origin)[1] / ny as f64 * Vector3::new(0.,1.,0.);
+        let ez = (ending-origin)[2] / nz as f64 * Vector3::new(0.,0.,1.);
         let boundaries = [
             (origin, -ex, bc[0].clone()),
             (origin, -ey, bc[1].clone()),
@@ -106,5 +105,23 @@ mod tests {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }
         assert_eq!(layer.grid.len(),32);
+    }
+
+    #[test]
+    fn test_large_mesh() {
+        let bc = [
+            BoundaryCondition::Dirichlet(300.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Dirichlet(0.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Neumann(0.)
+            ];
+        let (nx, ny, nz) = (100, 1, 1);
+        let layer = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz, 0,bc);
+        for cell in &layer.grid {
+            println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
+        }
+        assert_eq!(layer.grid.len(),(nx+2)*(ny+2)*(nz+2) - 4*nx - 4*ny - 4*nz - 8);
     }
 }
