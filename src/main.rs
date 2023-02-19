@@ -1,17 +1,17 @@
 use nalgebra::DVector;
 use std::time::{Instant};
-use flex_fvm::solver;
-use flex_fvm::cell::{CellType,BoundaryCondition, BoundaryDirection};
+use flex_fvm::{solver,cell::BoundaryCondition};
 
 fn main() {
-    let boundary_conditions = vec![
-        BoundaryDirection::North(BoundaryCondition::Neumann(0., None)),
-        BoundaryDirection::South(BoundaryCondition::Neumann(0., None)),
-        BoundaryDirection::East(BoundaryCondition::Dirichlet(0., None)),
-        BoundaryDirection::West(BoundaryCondition::Dirichlet(300., None)),
-        BoundaryDirection::Close(BoundaryCondition::Neumann(0., None)),
-        BoundaryDirection::Far(BoundaryCondition::Neumann(0., None))];
-    let (nx, ny, nz) = (40, 1, 40);
+    let boundary_conditions = [
+        BoundaryCondition::Dirichlet(300.),
+        BoundaryCondition::Neumann(0.),
+        BoundaryCondition::Neumann(0.),
+        BoundaryCondition::Dirichlet(0.),
+        BoundaryCondition::Neumann(0.),
+        BoundaryCondition::Neumann(0.)
+        ];
+    let (nx, ny, nz) = (6, 1, 1);
     let mut block = solver::Domain::new();
     block.add_layer((0.,0.,0.), (1.,1.,1.), nx, ny, nz, boundary_conditions);
 
@@ -32,7 +32,7 @@ fn main() {
         }
         t = t+h;
         it += 1;
-        println!("{:?}", y);
+        // println!("{:?}", y);
     }
     let duration = start.elapsed();
     println!("Elapsed time : {} ms. Iterations : {}", duration.as_millis(), it);

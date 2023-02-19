@@ -1,3 +1,5 @@
+use crate::cell::CellType;
+use crate::cell::Neighbor;
 use crate::mesh;
 use crate::cell;
 use nalgebra::DVector;
@@ -6,48 +8,72 @@ use std::fmt;
 #[derive(Default)]
 pub struct Domain {
     layers: Vec<mesh::Mesh>,
-    n_layers: usize,
 }
 
 impl Domain {
     pub fn new() -> Self {
-        Domain{layers: Vec::new(), n_layers: 0}
-    }
-    pub fn add_layer(&mut self, r1:(f64,f64,f64), r2:(f64,f64,f64), nx:usize, ny:usize, nz:usize, boundary_conditions:Vec<cell::BoundaryDirection>) {
-        self.layers.push(mesh::Mesh::generate(r1, r2, nx, ny, nz, self.n_layers,boundary_conditions));
-        self.n_layers += 1;
+        Domain{layers: Vec::new()}
     }
 
-    fn link_layers(&mut self) {
-        for layer_index in 0..self.layers.len() {
-            for cell_index in 0..layers[layer_index].grid.len() {
-                let neighbor = self.find_neighbor((layer_index,cell_index));
-            }
-        }
-
-        for layer_index in 0..self.layers.len() {
-            for cell_index in 0..layers[layer_index].grid.len() {
-                self.layers[layer_index].grid[cell_index].de = self.get_cell(self.layers[layer_index].grid[cell_index].east).r - self.layers[layer_index].grid[cell_index].r;
+    pub fn add_layer(&mut self, r1:(f64,f64,f64), r2:(f64,f64,f64), nx:usize, ny:usize, nz:usize, bc:[cell::BoundaryCondition;6]) {
+        self.layers.push(mesh::Mesh::generate(r1, r2, nx, ny, nz, self.layers.len(),bc));
+        self.link_cells()
     }
 
     fn get_cell(&self, (layer_id,cell_id):(usize,usize)) -> &cell::Cell {
         &self.layers[layer_id].grid[cell_id]
     }
 
-    #[allow(dead_code)]
-    fn find_neighbor(&self, (id,index):(usize,usize)) -> (usize,usize) {
-        (0,0)// TBD
+    fn link_cells(&mut self) {
+        // link cells inside layers
+        for layer_index in 0..self.layers.len() {
+            for cell_index in 0..self.layers[layer_index].grid.len() {
+                self.assign_neighbors((layer_index,cell_index));
+            }
+        }
+    }
+
+    fn assign_neighbors(&mut self, (layer_index,cell_index):(usize,usize)) {
+        // takes the index of a cell (layer,cell) and assigns the correct value to its cell.face.neighbor
+        // the neighbor must first be found. the criteris is that its cell.face.r is the same
+
+        // each face has a neighbor
+        for face_index in 0..self.layers[layer_index].grid[cell_index].faces.len() {
+            // could be in any layer
+            for neighbor_layer_index in 0..self.layers.len() {
+                // could be any cell
+                for neighbor_cell_index in 0..self.layers[neighbor_layer_index].grid.len() {
+                    if (neighbor_layer_index,neighbor_cell_index) == (layer_index,cell_index) {continue}
+                    // could be any of its faces
+                    for neighbor_face_index in 0..self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces.len() {
+                        if self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces[neighbor_face_index].center == self.layers[layer_index].grid[cell_index].faces[face_index].center {
+                            self.layers[layer_index].grid[cell_index].faces[face_index].neighbor = Some(Neighbor{
+                                index: (neighbor_layer_index,neighbor_cell_index),
+                                dr: self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r,
+                                distance: (self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r).norm(),
+                            });
+                            if (self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r).norm() == 0. {println!("thats not cool {} {}", self.layers[neighbor_layer_index].grid[neighbor_cell_index].r,self.layers[layer_index].grid[cell_index].r)}
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn enforce_boundary_conditions(&mut self) {
         for layer_id in 0..self.layers.len() {
             for cell_id in 0..self.layers[layer_id].grid.len() {
-                if let cell::CellType::Boundary(cell::BoundaryCondition::Dirichlet(val, _)) = self.layers[layer_id].grid[cell_id].variant {
+                if let cell::CellType::Boundary(cell::BoundaryCondition::Dirichlet(val)) = self.layers[layer_id].grid[cell_id].variant {
                     self.layers[layer_id].grid[cell_id].T = val;
-                } else if let cell::CellType::Boundary(cell::BoundaryCondition::Neumann(val, neighbor)) = self.layers[layer_id].grid[cell_id].variant {
-                    self.layers[layer_id].grid[cell_id].T = self.get_cell(neighbor.unwrap()).T; // TODO: only true for val = 0
+                } else if let cell::CellType::Boundary(cell::BoundaryCondition::Neumann(val)) = self.layers[layer_id].grid[cell_id].variant {
+                    if self.layers[layer_id].grid[cell_id].faces.len() != 1 {
+                        panic!("boundary cells should only have a single neighbor");
+                    } else {
+                        // TODO: only true for val = 0
+                        self.layers[layer_id].grid[cell_id].T = self.get_cell(self.layers[layer_id].grid[cell_id].faces[0].neighbor.unwrap().index).T;
+                    }
+                    
                 }
-
             }
         }
     }
@@ -56,21 +82,13 @@ impl Domain {
         let mut y = DVector::from_element(x.len(), 0.);
         let mut i = 0;
         for layer in &self.layers {
-            for p in layer.get_cells() {
-                let radial;
-                let axial;
-                let n = self.get_cell(p.north);
-                let s = self.get_cell(p.south);
-                let w = self.get_cell(p.west);
-                let e = self.get_cell(p.east);
-
-                axial = p.rho * p.cp / p.dx * (
-                    (e.T - p.T) / p.de * (e.lambda + p.lambda) / 2. - 
-                    (p.T - w.T) / p.dw * (p.lambda + w.lambda) / 2. );
-                radial = p.rho * p.cp / p.dy * (
-                    (n.T - p.T) / p.dn * (n.lambda + p.lambda) / 2. - 
-                    (p.T - s.T) / p.ds * (p.lambda + s.lambda) / 2. );
-                y[i] = radial + axial;
+            for p in layer.get_cells().iter().filter(|c| matches!(c.variant,CellType::Internal)) {
+                let mut flux = 0.;
+                for f in &p.faces {
+                    let n = self.get_cell(f.neighbor.as_ref().unwrap().index);
+                    flux += p.lambda * (p.T - n.T) / f.neighbor.as_ref().unwrap().distance * f.area;
+                }
+                y[i] = flux/p.volume/p.rho/p.cp;
                 i += 1;
             }
         }
@@ -82,8 +100,10 @@ impl Domain {
         let mut i = 0;
         for layer in &mut self.layers {
             for cell in layer.get_mut_cells() {
-                cell.T = y[i];
-                i += 1;
+                if matches!(cell.variant,CellType::Internal) {
+                    cell.T = y[i];
+                    i += 1;
+                }
             }
         }
         self.enforce_boundary_conditions();

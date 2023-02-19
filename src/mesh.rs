@@ -1,43 +1,25 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
-use nalgebra::{Vector3,DVector};
+use nalgebra::{Vector3,Point3,DVector};
 use crate::cell::*;
-use std::{fmt, fs::DirBuilder};
+use std::{fmt};
 
 #[allow(dead_code,non_snake_case)]
 pub struct Mesh {
     pub grid: Vec<Cell>,
+    pub boundaries: [(Point3<f64>, Vector3<f64>, BoundaryCondition); 6],
     // amount os simulated cells along each dimension
-    pub nx: usize,
-    pub ny: usize,
-    pub nz: usize,
-    pub n: usize, // simulated cells
-    pub N: usize, // all cells, incl. boundary conditions
     pub id: usize,
     pub n_eq: usize,
-    //pub r1: Vector3<f64>,
-    //pub r2: Vector3<f64>,
 }
 
 #[allow(dead_code)]
 impl Mesh {
     pub fn get_cells(&self) -> &[Cell] {
-        &self.grid[self.ii((1,1,1))..=self.ii((self.nx,self.ny,self.nz))]
+        &self.grid
     }
+
     pub fn get_mut_cells(&mut self) -> &mut[Cell] {
-        let i0 = self.ii((1,1,1));
-        let i1 = self.ii((self.nx,self.ny,self.nz));
-        &mut self.grid[i0..=i1]
-    }
-
-    pub fn ii(&self, (i,j,k):(usize,usize,usize)) -> usize {
-        self.nx*self.ny*k + self.nx*j + i
-    }
-
-    pub fn ijk(&self, ii:usize) -> (usize, usize, usize) {
-        let k = ii / (self.nx * self.ny);
-        let j = ii % (self.nx * self.ny) / self.nx;
-        let i = ii % (self.nx * self.ny) % self.nx;
-        (i,j,k)
+        &mut self.grid
     }
 
     pub fn update(&mut self, x:&DVector<f64>) {
@@ -46,93 +28,51 @@ impl Mesh {
         }
     }
 
+    fn reindex(&mut self) {
+        for i in 0..self.grid.len() {
+            self.grid[i].id = (self.id,i);
+        }
+    }
+
     #[allow(non_snake_case)]
-    pub fn generate(r1:(f64,f64,f64), r2:(f64,f64,f64), nx:usize, ny:usize, nz:usize, id: usize, boundary_conditions:Vec<BoundaryDirection>) -> Mesh{
-        // nx, ny, nz is the size of the mesh without the boundary cells
-        // NX, NY, NZ adds a layer of boundary cells around the domain
-        let (NX,NY,NZ) = (nx+2,ny+2,nz+2);
+    pub fn generate(r1:(f64,f64,f64), r2:(f64,f64,f64), nx:usize, ny:usize, nz:usize, id: usize, bc:[BoundaryCondition;6]) -> Mesh{
+        // generates a regular grid of rectangular cells
+        // TODO: I could not think of an elegant way to pass boundary conditions
+        // in the current state, the order in which they are passed are very important!
         let (dx, dy, dz) = ((r2.0-r1.0)/nx as f64, (r2.1-r1.1)/ny as f64, (r2.2-r1.2)/nz as f64);
-        let mut mesh = Mesh{grid: vec![Cell{dx, dy, dz, layer_id: id, ..Default::default()}; NX*NY*NZ], nx, ny, nz, n:nx*ny*nz, N:NX*NY*NZ, id, n_eq: 1};
-        let origin = Vector3::new(r1.0,r1.1,r1.2);
-        for i in 0..NX {
-            for j in 0..NY {
-                for k in 0..NZ {
-                    let index: usize = mesh.ii((i,j,k));
-                    mesh.grid[index].id = index;
-                    mesh.grid[index].r1 = origin + Vector3::new((i as f64 -1.)* dx, (j as f64 -1.) * dy, (k as f64 -1.) * dz);
-                    mesh.grid[index].r2 = origin + Vector3::new(i as f64 * dx, j as f64 * dy, k as f64 * dz);
-                    mesh.grid[index].r = (mesh.grid[index].r1 + mesh.grid[index].r2)/2.; // r meeds to be vector
-                    if i == 0 {
-                        for boundary in &boundary_conditions {
-                            if let BoundaryDirection::West(bc) = *boundary {
-                                if let BoundaryCondition::Dirichlet(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i+1,j,k))))));
-                                } else if let BoundaryCondition::Neumann(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i+1,j,k))))));
-                                }
-                            }
+        let ex = Vector3::new(dx, 0., 0.);
+        let ey = Vector3::new(0., dy, 0.);
+        let ez = Vector3::new(0., 0., dz);
+        let origin = Point3::new(r1.0,r1.1,r1.2);
+        let ending = Point3::new(r2.0,r2.1,r2.2);
+        let boundaries = [
+            (origin, -ex, bc[0].clone()),
+            (origin, -ey, bc[1].clone()),
+            (origin, -ez, bc[2].clone()),
+            (ending, ex, bc[3].clone()),
+            (ending, ey, bc[4].clone()),
+            (ending, ez, bc[5].clone()),
+        ];
+        let mut mesh = Mesh{grid: Vec::new(), boundaries:boundaries.clone(), id, n_eq: 1};
+        for i in 0..nx {
+            for j in 0..ny {
+                for k in 0..nz {
+                    let mut cell = Cell{variant:CellType::Internal, ..Default::default()};
+                    cell.create_rectangle(origin + ex*i as f64 + ey*j as f64 + ez*k as f64, ex, ey, ez);
+                    // check if at boundary. if so, create boundary condition
+                    for (point, normal, bc) in &boundaries {
+                        if let Some(face) = cell.face_on_plane(&point, &normal) {
+                            // search for corresponding boundary condition
+                            let boundary_cell = Cell::boundary_from_cell(&cell, &normal, face, bc.clone());
+                            mesh.grid.push(boundary_cell);
                         }
-                    } else if i == NX-1 {
-                        for boundary in &boundary_conditions {
-                            if let BoundaryDirection::East(bc) = *boundary {
-                                if let BoundaryCondition::Dirichlet(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i-1,j,k))))));
-                                } else if let BoundaryCondition::Neumann(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i-1,j,k))))));
-                                }
-                            }
-                        }
-                    } else if j == 0 {
-                        for boundary in &boundary_conditions {
-                            if let BoundaryDirection::Close(bc) = *boundary {
-                                if let BoundaryCondition::Dirichlet(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i,j+1,k))))));
-                                } else if let BoundaryCondition::Neumann(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i,j+1,k))))));
-                                }
-                            }
-                        }
-                    } else if j == NY-1 {
-                        for boundary in &boundary_conditions {
-                            if let BoundaryDirection::Far(bc) = *boundary {
-                                if let BoundaryCondition::Dirichlet(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i,j-1,k))))));
-                                } else if let BoundaryCondition::Neumann(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i,j-1,k))))));
-                                }
-                            }
-                        }
-                    } else if k == 0 {
-                        for boundary in &boundary_conditions {
-                            if let BoundaryDirection::South(bc) = *boundary {
-                                if let BoundaryCondition::Dirichlet(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i,j,k+1))))));
-                                } else if let BoundaryCondition::Neumann(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i,j,k+1))))));
-                                }
-                            }
-                        }
-                    } else if k == NZ-1 {
-                        for boundary in &boundary_conditions {
-                            if let BoundaryDirection::North(bc) = *boundary {
-                                if let BoundaryCondition::Dirichlet(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Dirichlet(value, Some((id, mesh.ii((i,j,k-1))))));
-                                } else if let BoundaryCondition::Neumann(value, node) = bc {
-                                    mesh.grid[index].variant = CellType::Boundary(BoundaryCondition::Neumann(value, Some((id, mesh.ii((i,j,k-1))))));
-                                }
-                            }
-                        }
-                    } else {
-                        mesh.grid[index].east = (id, mesh.ii((i+1,j,k)));
-                        mesh.grid[index].west = (id, mesh.ii((i-1,j,k)));
-                        mesh.grid[index].far = (id, mesh.ii((i,j+1,k)));
-                        mesh.grid[index].close = (id, mesh.ii((i,j-1,k)));
-                        mesh.grid[index].north = (id, mesh.ii((i,j,k+1)));
-                        mesh.grid[index].south = (id, mesh.ii((i,j,k-1)));
                     }
+                    // neighbors can be set from a specialized routine that uses the vertices of the cells. it is needed anyway to merge multiple layers
+                    mesh.grid.push(cell);
                 }
             }
         }
+        mesh.reindex();
         mesh
     }
 }
@@ -140,9 +80,8 @@ impl Mesh {
 impl fmt::Debug for Mesh {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[ ")?;
-        for i in 0..self.nx+2 {
-            let ii = self.ii((i,0,0));
-            write!(f, "{:.2} ", self.grid[ii].T)?;
+        for cell in self.get_cells().iter().filter(|c| matches!(c.variant,CellType::Internal)) {
+            write!(f, "{:.2} ", cell.T)?;
         }
         write!(f, "]")
     }
@@ -150,29 +89,22 @@ impl fmt::Debug for Mesh {
 
 #[cfg(test)]
 mod tests {
-    use crate::mesh::*;
+    use crate::{cell::BoundaryCondition,mesh::Mesh};
     #[test]
-    fn test_ii() {
-        let (nx, ny, nz) = (5, 4, 3);
-        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz, 1, Vec::new());
-        assert_eq!(mesh.ii((0,0,0)), 0);
-        assert_eq!(mesh.ii((1,0,0)), 1);
-        assert_eq!(mesh.ii((0,1,0)), 5);
-        assert_eq!(mesh.ii((0,0,1)), 20);
-        assert_eq!(mesh.ii((4,3,2)), 59);
-    }
-    #[test]
-    fn test_ijk() {
-        let (nx, ny, nz) = (5, 4, 3);
-        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz, 1, Vec::new());
-        assert_eq!(mesh.ijk(nx*ny*nz-1), (4,3,2));
-        assert_eq!(mesh.ijk(1), (1,0,0));
-    }
-    #[test]
-    fn test_mesh() {
-        let (nx, ny, nz) = (4, 4, 4);
-        let mesh = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz, 1, Vec::new());
-        assert_eq!(mesh.grid[63].r2, Vector3::new(1.,1.,1.));
-        assert_eq!(mesh.grid[63].r1, Vector3::new(0.75,0.75,0.75));
+    fn test_generation() {
+        let bc = [
+            BoundaryCondition::Dirichlet(300.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Dirichlet(0.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Neumann(0.)
+            ];
+        let (nx, ny, nz) = (2, 2, 2);
+        let layer = Mesh::generate((0.,0.,0.), (1.,1.,1.), nx, ny, nz, 0,bc);
+        for cell in &layer.grid {
+            println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
+        }
+        assert_eq!(layer.grid.len(),32);
     }
 }

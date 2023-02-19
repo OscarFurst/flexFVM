@@ -1,18 +1,14 @@
-#[allow(dead_code)]
-use nalgebra::Vector3;
+// for now all cells are rectangular parallelepipeds
+use nalgebra::{Vector3,Point3};
 use std::fmt;
 
 #[allow(non_snake_case)]
 #[derive(Clone)]
 pub struct Cell {
     // geometric properties
-    pub r: Vector3<f64>,
-    pub r1: Vector3<f64>,
-    pub r2: Vector3<f64>,
-    pub dx: f64,
-    pub dy: f64,
-    pub dz: f64,
-    pub dn: f64, pub ds: f64, pub de: f64, pub dw: f64, pub dc: f64, pub df: f64,
+    pub r: Point3<f64>,
+    pub volume: f64,
+    pub vertices: Vec<Point3<f64>>,
     pub variant: CellType,
     // physical properties
     pub T: f64,
@@ -20,37 +16,121 @@ pub struct Cell {
     pub cp: f64,
     pub lambda: f64,
     // this pair of values uniquely identifies the cell
-    pub id: usize,
-    pub layer_id: usize,
+    pub id: (usize,usize),
     // identifyers of neighbors
-    pub north: (usize,usize),
-    pub south: (usize,usize),
-    pub east: (usize,usize),
-    pub west: (usize,usize),
-    pub close: (usize,usize),
-    pub far: (usize,usize),
+    pub faces: Vec<Face>,
+}
+
+impl Cell {
+    pub fn create_rectangle(&mut self, origin:Point3<f64>, ex:Vector3<f64>, ey:Vector3<f64>, ez:Vector3<f64>) {
+        // unit vectors ei, ej and ek in x, y and z
+        self.r = origin + ex/2. + ey/2. + ez/2.;
+        self.volume = ex[0] * ey[1] * ez[2];
+        // dont touch variant and values and id
+        let vertices = vec![
+            origin,
+            origin+ex,
+            origin+ey,
+            origin+ez,
+            origin+ex+ey,
+            origin+ex+ez,
+            origin+ey+ez,
+            origin+ex+ey+ez
+        ];
+        self.faces = vec![
+            Face::new(&vec![vertices[0], vertices[1], vertices[2], vertices[4]]), // south
+            Face::new(&vec![vertices[3], vertices[5], vertices[6], vertices[7]]), // north
+            Face::new(&vec![vertices[0], vertices[1], vertices[3], vertices[5]]), // close
+            Face::new(&vec![vertices[2], vertices[4], vertices[6], vertices[7]]), // far
+            Face::new(&vec![vertices[1], vertices[4], vertices[5], vertices[7]]), // east
+            Face::new(&vec![vertices[0], vertices[2], vertices[3], vertices[6]]), // west
+        ];
+        self.vertices = vertices;
+    }
+
+    pub fn face_on_plane(&self, point:&Point3<f64>, normal:&Vector3<f64>) -> Option<&Face> {
+        for face in &self.faces {
+            if (face.center - point).dot(normal) == 0. {
+                return Some(face);
+            }
+        }
+        return None;
+    }
+
+    pub fn boundary_from_cell(cell:&Cell, normal:&Vector3<f64>, face:&Face, bc:BoundaryCondition) -> Cell {
+        // the boundary condition is not linked to the cell after the function, it needs to be done when linking the cells
+        let boundary_cell = Cell{
+            r: cell.r + normal,
+            volume: cell.volume,
+            vertices: Vec::from_iter(cell.vertices.iter().map(|v| v+normal)),
+            variant: CellType::Boundary(bc),
+            faces: vec![face.clone()],
+            ..Default::default()
+        };
+        boundary_cell
+    }
 }
 
 #[derive(Clone,Copy)]
+pub struct Neighbor {
+    pub index: (usize,usize),
+    pub dr: Vector3<f64>,
+    pub distance: f64,
+}
+
+#[derive(Clone)]
+pub struct Face {
+    pub vertices: Vec<Point3<f64>>,
+    pub center: Point3<f64>,
+    pub area: f64,
+    pub neighbor: Option<Neighbor>,
+}
+
+impl Face {
+    fn new(vertices:&Vec<Point3<f64>>) -> Self {
+        // TODO: only implemented for rectangle
+        let vects:Vector3<f64> = vertices.iter().map(|v| v.coords).sum(); // this is so ugly
+        let center: Point3<f64> = Point3::new(0.,0.,0.) + vects / vertices.len() as f64;
+        let newface = Face{
+            vertices: vertices.clone(),
+            center: center,
+            area: {
+                let mut area = 0.;
+                for i in 1..vertices.len() {
+                    if (vertices[0][0] == vertices[i][0]) as u8 + (vertices[0][1] == vertices[i][1]) as u8 + (vertices[0][2] == vertices[i][2]) as u8 == 2 {
+                        let diff:Vector3<f64> = vertices[0] - vertices[i];
+                        area = diff.iter().filter(|x| **x != 0.).product();
+                    }
+                }area
+            },
+            neighbor: None,
+        };
+        newface
+    }
+
+    pub fn get_origin(&self) -> Point3<f64>{
+        // find the point closest to origin
+        // that does not look nice...
+        let length_vector = self.vertices.iter().map(|v| v.coords.abs().sum());
+        let index_of_min = length_vector
+            .enumerate()
+            .min_by(|(_,a), (_,b)| a.partial_cmp(b).unwrap())
+            .map(|(index,_)| index);
+        self.vertices[index_of_min.unwrap()]
+    }
+}
+
+#[derive(Clone,Debug)]
 pub enum CellType {
     Internal,
     Boundary(BoundaryCondition),
     None,
 }
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Debug)]
 pub enum BoundaryCondition {
-    Dirichlet(f64, Option<(usize,usize)>),
-    Neumann(f64, Option<(usize,usize)>),
-}
-
-pub enum BoundaryDirection {
-    North(BoundaryCondition),
-    South(BoundaryCondition),
-    East(BoundaryCondition),
-    West(BoundaryCondition),
-    Close(BoundaryCondition),
-    Far(BoundaryCondition),
+    Dirichlet(f64),
+    Neumann(f64),
 }
 
 impl fmt::Debug for Cell {
@@ -62,26 +142,16 @@ impl fmt::Debug for Cell {
 impl Default for Cell {
     fn default() -> Self {
         Cell {
-            r: Vector3::new(0.,0.,0.),
-            r1: Vector3::new(0.,0.,0.),
-            r2: Vector3::new(0.,0.,0.),
-            dx: 0.,
-            dy: 0.,
-            dz: 0.,
-            dn: 0., ds: 0., de: 0., dw: 0., dc: 0., df: 0.,
+            r: Point3::new(0.,0.,0.),
+            vertices: Vec::new(),
+            volume: 0.,
             T: 0.0,
             rho: 1.0,
             cp: 0.1,
             lambda: 0.01,
             variant: CellType::Internal,
-            id: 0,
-            layer_id: 0,
-            north: (0,0),
-            south: (0,0),
-            east: (0,0),
-            west: (0,0),
-            close: (0,0),
-            far: (0,0),
+            id: (0,0),
+            faces: Vec::new(),
         }
     }
 }
