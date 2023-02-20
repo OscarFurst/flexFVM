@@ -2,8 +2,10 @@
 use nalgebra::{Vector3,Point3,DVector};
 use crate::cell::*;
 use std::{fmt};
+use serde::{Serialize, Deserialize};
 
-#[allow(dead_code,non_snake_case)]
+#[allow(non_snake_case)]
+#[derive(Serialize, Deserialize)]
 pub struct Mesh {
     pub grid: Vec<Cell>,
     pub boundaries: [(Point3<f64>, Vector3<f64>, BoundaryCondition); 6],

@@ -1,9 +1,10 @@
 // for now all cells are rectangular parallelepipeds
 use nalgebra::{Vector3,Point3};
 use std::{fmt, f64::EPSILON};
+use serde::{Serialize, Deserialize};
 
 #[allow(non_snake_case)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Cell {
     // geometric properties
     pub r: Point3<f64>,
@@ -73,14 +74,14 @@ impl Cell {
     }
 }
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy, Serialize, Deserialize)]
 pub struct Neighbor {
     pub index: (usize,usize),
     pub dr: Vector3<f64>,
     pub distance: f64,
 }
 
-#[derive(Clone)]
+#[derive(Clone,Serialize,Deserialize)]
 pub struct Face {
     pub vertices: Vec<Point3<f64>>,
     pub center: Point3<f64>,
@@ -122,14 +123,14 @@ impl Face {
     }
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug,Serialize,Deserialize)]
 pub enum CellType {
     Internal,
     Boundary(BoundaryCondition),
     None,
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug,Serialize,Deserialize)]
 pub enum BoundaryCondition {
     Dirichlet(f64),
     Neumann(f64),

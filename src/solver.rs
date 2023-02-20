@@ -4,8 +4,9 @@ use crate::mesh;
 use crate::cell;
 use nalgebra::DVector;
 use std::fmt;
+use serde::{Serialize, Deserialize};
 
-#[derive(Default)]
+#[derive(Serialize, Deserialize)]
 pub struct Domain {
     layers: Vec<mesh::Mesh>,
 }
