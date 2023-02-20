@@ -39,6 +39,7 @@ impl Domain {
 
         // each face has a neighbor
         for face_index in 0..self.layers[layer_index].grid[cell_index].faces.len() {
+            if matches!(self.layers[layer_index].grid[cell_index].faces[face_index].neighbor,Some(_)) {continue;}
             // could be in any layer
             for neighbor_layer_index in 0..self.layers.len() {
                 // could be any cell
@@ -46,12 +47,19 @@ impl Domain {
                     if (neighbor_layer_index,neighbor_cell_index) == (layer_index,cell_index) {continue}
                     // could be any of its faces
                     for neighbor_face_index in 0..self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces.len() {
+                        if matches!(self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces[neighbor_face_index].neighbor, Some(_)) {continue;}
                         // check if the face centers coincide
                         if (self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces[neighbor_face_index].center - self.layers[layer_index].grid[cell_index].faces[face_index].center).norm().abs() < f64::EPSILON {
+                            let dr = self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r;
                             self.layers[layer_index].grid[cell_index].faces[face_index].neighbor = Some(Neighbor{
                                 index: (neighbor_layer_index,neighbor_cell_index),
-                                dr: self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r,
-                                distance: (self.layers[neighbor_layer_index].grid[neighbor_cell_index].r - self.layers[layer_index].grid[cell_index].r).norm(),
+                                dr: dr,
+                                distance: dr.norm(),
+                            });
+                            self.layers[neighbor_layer_index].grid[neighbor_cell_index].faces[neighbor_face_index].neighbor = Some(Neighbor{
+                                index: (layer_index,cell_index),
+                                dr: -dr,
+                                distance: dr.norm(),
                             });
                         }
                     }
@@ -82,7 +90,9 @@ impl Domain {
         let mut y = DVector::from_element(x.len(), 0.);
         let mut i = 0;
         for layer in &self.layers {
-            for p in layer.get_cells().iter().filter(|c| matches!(c.variant,CellType::Internal)) {
+            for p in layer.get_cells()
+                                 .iter()
+                                 .filter(|c| matches!(c.variant,CellType::Internal)) {
                 let mut flux = 0.;
                 for f in &p.faces {
                     let n = self.get_cell(f.neighbor.as_ref().unwrap().index);

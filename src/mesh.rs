@@ -80,7 +80,7 @@ impl fmt::Debug for Mesh {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[ ")?;
         for cell in self.get_cells().iter().filter(|c| matches!(c.variant,CellType::Internal)) {
-            write!(f, "{:.2} ", cell.T)?;
+            write!(f, "{:.1} ", cell.T)?;
         }
         write!(f, "]")
     }

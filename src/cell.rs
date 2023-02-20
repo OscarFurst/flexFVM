@@ -137,7 +137,7 @@ pub enum BoundaryCondition {
 
 impl fmt::Debug for Cell {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:.2}", self.T)
+        write!(f, "{:.1}", self.T)
     }
 }
 
