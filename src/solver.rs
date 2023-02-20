@@ -86,7 +86,7 @@ impl Domain {
                 let mut flux = 0.;
                 for f in &p.faces {
                     let n = self.get_cell(f.neighbor.as_ref().unwrap().index);
-                    flux += p.lambda * (p.T - n.T) / f.neighbor.as_ref().unwrap().distance * f.area;
+                    flux -= p.lambda * (p.T - n.T) / f.neighbor.as_ref().unwrap().distance * f.area;
                 }
                 y[i] = flux/p.volume/p.rho/p.cp;
                 i += 1;

@@ -98,10 +98,10 @@ impl Face {
             center: center,
             area: {
                 let mut area = 0.;
-                for i in 1..vertices.len() {
-                    if (vertices[0][0] == vertices[i][0]) as u8 + (vertices[0][1] == vertices[i][1]) as u8 + (vertices[0][2] == vertices[i][2]) as u8 == 2 {
-                        let diff:Vector3<f64> = vertices[0] - vertices[i];
-                        area = diff.iter().filter(|x| **x != 0.).product();
+                let v1 = vertices[1] - vertices[0];
+                for i in 2..vertices.len() {
+                    if v1.dot(&(vertices[i] - vertices[0])).abs() < f64::EPSILON {
+                        area = v1.cross(&(vertices[i] - vertices[0])).norm().abs()
                     }
                 }area
             },

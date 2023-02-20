@@ -33,6 +33,7 @@ fn main() {
         t = t+h;
         it += 1;
         // println!("{:?}", y);
+        if y.iter().any(|x| x.is_nan()) {break}
     }
     let duration = start.elapsed();
     println!("Elapsed time : {} ms. Iterations : {}", duration.as_millis(), it);

@@ -122,6 +122,7 @@ mod tests {
         for cell in &layer.grid {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }
+        println!("Cell volume : {}", &layer.grid[0].volume);
         assert_eq!(layer.grid.len(),(nx+2)*(ny+2)*(nz+2) - 4*nx - 4*ny - 4*nz - 8);
     }
 }
