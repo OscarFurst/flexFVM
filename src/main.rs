@@ -1,6 +1,6 @@
+use flex_fvm::{cell::BoundaryCondition, solver};
 use nalgebra::DVector;
-use std::time::{Instant};
-use flex_fvm::{solver,cell::BoundaryCondition};
+use std::time::Instant;
 
 fn main() {
     let boundary_conditions = [
@@ -9,18 +9,18 @@ fn main() {
         BoundaryCondition::Neumann(0.),
         BoundaryCondition::Dirichlet(0.),
         BoundaryCondition::Neumann(0.),
-        BoundaryCondition::Neumann(0.)
-        ];
+        BoundaryCondition::Neumann(0.),
+    ];
     let (nx, ny, nz) = (100, 1, 40);
     let mut block: solver::Domain;
     block = solver::Domain::new();
-    block.add_layer((0.,0.,0.), (1.,1.,1.), nx, ny, nz, boundary_conditions);
+    block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, boundary_conditions);
 
-    let t_end:f64 = 0.001;
+    let t_end: f64 = 0.001;
     let mut t = 0.;
     let mut it = 0;
-    let h:f64 = 0.000001;
-    let mut x = DVector::from_element(nx*ny*nz, 0.);
+    let h: f64 = 0.000001;
+    let mut x = DVector::from_element(nx * ny * nz, 0.);
     let start = Instant::now();
     while t < t_end {
         //println!("Time = {} s", t);
@@ -34,9 +34,15 @@ fn main() {
         t += h;
         it += 1;
         // println!("{:?}", y);
-        if y.iter().any(|x| x.is_nan()) {break}
+        if y.iter().any(|x| x.is_nan()) {
+            break;
+        }
     }
     let duration = start.elapsed();
-    println!("Elapsed time : {} ms. Iterations : {}", duration.as_millis(), it);
+    println!(
+        "Elapsed time : {} ms. Iterations : {}",
+        duration.as_millis(),
+        it
+    );
     println!("{:?}", block)
 }
