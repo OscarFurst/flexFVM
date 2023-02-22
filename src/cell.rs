@@ -1,10 +1,12 @@
 // for now all cells are rectangular parallelepipeds
 use nalgebra::{Vector3,Point3};
-use std::{fmt, f64::EPSILON};
-use serde::{Serialize, Deserialize};
+use std::{fmt};
+use std::rc::Rc;
+use debug_cell::RefCell;
+
 
 #[allow(non_snake_case)]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Cell {
     // geometric properties
     pub r: Point3<f64>, // m
@@ -16,18 +18,16 @@ pub struct Cell {
     pub rho: f64,    // kg/m3
     pub cp: f64,     // J/k/kg
     pub lambda: f64, // W/m/k
-    // this pair of values uniquely identifies the cell
-    pub id: (usize,usize),
-    // identifyers of neighbors
+    // faces of the volume
     pub faces: Vec<Face>,
 }
 
 impl Cell {
     pub fn create_rectangle(&mut self, origin:Point3<f64>, ex:Vector3<f64>, ey:Vector3<f64>, ez:Vector3<f64>) {
-        // unit vectors ei, ej and ek in x, y and z
+        // creates a rectangular parallelepiped
         self.r = origin + ex/2. + ey/2. + ez/2.;
         self.volume = ex[0] * ey[1] * ez[2];
-        // dont touch variant and values and id
+        // values are not initialized by this function!
         let vertices = vec![
             origin,
             origin+ex,
@@ -50,17 +50,12 @@ impl Cell {
     }
 
     pub fn face_on_plane(&self, point:&Point3<f64>, normal:&Vector3<f64>) -> Option<&Face> {
-        //println!("Testing cell {:?}", self.r);
-        for face in &self.faces {
-            //println!("   face {:?} ; res = {}", face.center, (face.center - point).dot(normal));
-            if (face.center - point).dot(normal).abs() <= f64::EPSILON {
-                return Some(face);
-            }
-        }
-        return None;
+        // finds out if "self" has a face on a boudnary plane
+        self.faces.iter().find(|&face| (face.center - point).dot(normal).abs() <= f64::EPSILON)
     }
 
     pub fn boundary_from_cell(cell:&Cell, normal:&Vector3<f64>, face:&Face, bc:BoundaryCondition) -> Cell {
+        // creates a new "boundary cell" from the provided internal cell
         // the boundary condition is not linked to the cell after the function, it needs to be done when linking the cells
         let boundary_cell = Cell{
             r: cell.r + normal,
@@ -74,14 +69,14 @@ impl Cell {
     }
 }
 
-#[derive(Clone,Copy, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Neighbor {
-    pub index: (usize,usize),
+    pub cell: Rc<RefCell<Cell>>,
     pub dr: Vector3<f64>,
     pub distance: f64,
 }
 
-#[derive(Clone,Serialize,Deserialize)]
+#[derive(Clone)]
 pub struct Face {
     pub vertices: Vec<Point3<f64>>,
     pub center: Point3<f64>,
@@ -94,9 +89,9 @@ impl Face {
         // TODO: only implemented for rectangle
         let vects:Vector3<f64> = vertices.iter().map(|v| v.coords).sum(); // this is so ugly
         let center: Point3<f64> = Point3::new(0.,0.,0.) + vects / vertices.len() as f64; // I just want to average...
-        let newface = Face{
+        Face{
             vertices: vertices.clone(),
-            center: center,
+            center,
             area: {
                 let mut area = 0.;
                 let v1 = vertices[1] - vertices[0];
@@ -107,8 +102,7 @@ impl Face {
                 }area
             },
             neighbor: None,
-        };
-        newface
+        }
     }
 
     pub fn get_origin(&self) -> Point3<f64>{
@@ -123,26 +117,26 @@ impl Face {
     }
 }
 
-#[derive(Clone,Debug,Serialize,Deserialize)]
+#[derive(Clone,Debug)]
 pub enum CellType {
     Internal,
     Boundary(BoundaryCondition),
     None,
 }
 
-#[derive(Clone,Debug,Serialize,Deserialize)]
+#[derive(Clone,Debug)]
 pub enum BoundaryCondition {
     Dirichlet(f64),
     Neumann(f64),
 }
 
-impl fmt::Debug for Cell {
+impl  fmt::Debug for Cell {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:.1}", self.T)
     }
 }
 
-impl Default for Cell {
+impl  Default for Cell {
     fn default() -> Self {
         Cell {
             r: Point3::new(0.,0.,0.),
@@ -153,7 +147,6 @@ impl Default for Cell {
             cp: 0.001,
             lambda: 300.,
             variant: CellType::Internal,
-            id: (0,0),
             faces: Vec::new(),
         }
     }

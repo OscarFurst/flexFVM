@@ -1,8 +1,5 @@
 use nalgebra::DVector;
-use std::io::{Write, Read};
 use std::time::{Instant};
-use std::fs;
-use std::path::Path;
 use flex_fvm::{solver,cell::BoundaryCondition};
 
 fn main() {
@@ -14,25 +11,12 @@ fn main() {
         BoundaryCondition::Neumann(0.),
         BoundaryCondition::Neumann(0.)
         ];
-    let (nx, ny, nz) = (40, 1, 1);
-    let filename = "mesh.json";
+    let (nx, ny, nz) = (100, 1, 40);
     let mut block: solver::Domain;
-    fs::remove_file(filename).unwrap();
-    if Path::new(filename).exists() {
-        let mut file = fs::File::open(filename).unwrap();
-        let mut serialized = String::new();
-        file.read_to_string(&mut serialized).unwrap();
-        block = serde_json::from_str(&serialized).unwrap();
-    } else {
-        block = solver::Domain::new();
-        block.add_layer((0.,0.,0.), (1.,1.,1.), nx, ny, nz, boundary_conditions);
-        // save mesh
-        let serialized = serde_json::to_string(&block).unwrap();
-        let mut file = fs::File::create("mesh.json").unwrap();
-        file.write_all(serialized.as_bytes()).unwrap();
-    }
+    block = solver::Domain::new();
+    block.add_layer((0.,0.,0.), (1.,1.,1.), nx, ny, nz, boundary_conditions);
 
-    let t_end:f64 = 1.;
+    let t_end:f64 = 0.001;
     let mut t = 0.;
     let mut it = 0;
     let h:f64 = 0.000001;
@@ -42,12 +26,12 @@ fn main() {
         //println!("Time = {} s", t);
         block.update(&x);
         let y = block.setup_equations(&t, &x);
-        x = x + h * &y;
+        x += h * &y;
         if y.abs().max() < 0.0000001 {
             println!("Steady state reached at t = {} s", t);
             break;
         }
-        t = t+h;
+        t += h;
         it += 1;
         // println!("{:?}", y);
         if y.iter().any(|x| x.is_nan()) {break}
