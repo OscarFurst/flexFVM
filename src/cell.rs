@@ -7,15 +7,15 @@ use serde::{Serialize, Deserialize};
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Cell {
     // geometric properties
-    pub r: Point3<f64>,
-    pub volume: f64,
+    pub r: Point3<f64>, // m
+    pub volume: f64,    // m3
     pub vertices: Vec<Point3<f64>>,
     pub variant: CellType,
     // physical properties
-    pub T: f64,
-    pub rho: f64,
-    pub cp: f64,
-    pub lambda: f64,
+    pub T: f64,      // K
+    pub rho: f64,    // kg/m3
+    pub cp: f64,     // J/k/kg
+    pub lambda: f64, // W/m/k
     // this pair of values uniquely identifies the cell
     pub id: (usize,usize),
     // identifyers of neighbors
@@ -149,9 +149,9 @@ impl Default for Cell {
             vertices: Vec::new(),
             volume: 0.,
             T: 0.0,
-            rho: 1.0,
-            cp: 0.1,
-            lambda: 0.01,
+            rho: 9000.0,
+            cp: 0.001,
+            lambda: 300.,
             variant: CellType::Internal,
             id: (0,0),
             faces: Vec::new(),

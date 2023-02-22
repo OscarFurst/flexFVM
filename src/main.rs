@@ -14,10 +14,10 @@ fn main() {
         BoundaryCondition::Neumann(0.),
         BoundaryCondition::Neumann(0.)
         ];
-    let (nx, ny, nz) = (100, 1, 40);
+    let (nx, ny, nz) = (40, 1, 1);
     let filename = "mesh.json";
     let mut block: solver::Domain;
-    //fs::remove_file(filename).unwrap();
+    fs::remove_file(filename).unwrap();
     if Path::new(filename).exists() {
         let mut file = fs::File::open(filename).unwrap();
         let mut serialized = String::new();
@@ -32,10 +32,10 @@ fn main() {
         file.write_all(serialized.as_bytes()).unwrap();
     }
 
-    let t_end:f64 = 100.;
+    let t_end:f64 = 1.;
     let mut t = 0.;
     let mut it = 0;
-    let h:f64 = 0.01;
+    let h:f64 = 0.000001;
     let mut x = DVector::from_element(nx*ny*nz, 0.);
     let start = Instant::now();
     while t < t_end {
