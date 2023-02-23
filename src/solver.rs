@@ -1,17 +1,36 @@
-use crate::cell::{self, Neighbor};
-use crate::cell::{BoundaryCondition::*, CellType::*};
+use crate::cell::{self, BoundaryCondition::*, CellType::*};
+use crate::cell::{Cell, Neighbor};
+use crate::equation;
 use crate::mesh;
+use debug_cell::Ref;
 use nalgebra::DVector;
 use std::fmt;
 use std::rc::Rc;
 
 pub struct Domain {
     layers: Vec<mesh::Mesh>,
+    equations: Vec<fn(&Ref<Cell>) -> f64>,
 }
 
 impl Domain {
     pub fn new() -> Self {
-        Domain { layers: Vec::new() }
+        Domain {
+            layers: Vec::new(),
+            equations: Vec::new(),
+        }
+    }
+
+    pub fn vec_size(&self) -> usize {
+        let mut n = 0;
+        for layer in self.layers.iter() {
+            n += layer
+                .cells
+                .iter()
+                .filter(|c| matches!(c.borrow().variant, Internal))
+                .count()
+                * self.equations.len();
+        }
+        n
     }
 
     pub fn add_layer(
@@ -22,10 +41,12 @@ impl Domain {
         ny: usize,
         nz: usize,
         bc: &[cell::BoundaryCondition; 6],
+        eq: Vec<fn(&Ref<Cell>) -> f64>,
     ) {
         self.layers
             .push(mesh::Mesh::generate(r1, r2, nx, ny, nz, bc).link());
         self.join_layers();
+        self.equations = eq;
     }
 
     fn join_layers(&self) {
@@ -121,13 +142,10 @@ impl Domain {
                 .map(|c| c.borrow())
                 .filter(|c| matches!(c.variant, Internal))
             {
-                let mut flux = 0.;
-                for f in p.faces.iter() {
-                    let n = f.neighbor.as_ref().unwrap().cell.borrow();
-                    flux -= p.lambda * (p.T - n.T) / f.neighbor.as_ref().unwrap().distance * f.area;
+                for eq in self.equations.iter() {
+                    y[i] = (eq)(&p);
+                    i += 1;
                 }
-                y[i] = flux / p.volume / p.rho / p.cp;
-                i += 1;
             }
         }
         y
@@ -166,7 +184,7 @@ impl Default for Domain {
 #[cfg(test)]
 mod tests {
     use crate::cell::BoundaryCondition;
-    use crate::solver;
+    use crate::{equation, solver};
     #[test]
     fn test_generation() {
         let boundary_conditions = [
@@ -180,6 +198,14 @@ mod tests {
         let (nx, ny, nz) = (3, 1, 1);
         let mut block: solver::Domain;
         block = solver::Domain::new();
-        block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &boundary_conditions);
+        block.add_layer(
+            (0., 0., 0.),
+            (1., 1., 1.),
+            nx,
+            ny,
+            nz,
+            &boundary_conditions,
+            vec![equation::heat_diffusion],
+        );
     }
 }

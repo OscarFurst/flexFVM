@@ -1,3 +1,4 @@
+use flex_fvm::equation;
 use flex_fvm::{cell::BoundaryCondition, solver};
 use nalgebra::DVector;
 use std::time::Instant;
@@ -21,6 +22,7 @@ fn main() {
         ny,
         nz,
         &boundary_conditions,
+        vec![equation::heat_diffusion],
     );
     block.add_layer(
         (0.5, 0., 0.),
@@ -29,6 +31,7 @@ fn main() {
         ny,
         nz,
         &boundary_conditions,
+        vec![equation::heat_diffusion],
     );
     block.add_layer(
         (0., 0., 0.5),
@@ -37,6 +40,7 @@ fn main() {
         ny,
         nz,
         &boundary_conditions,
+        vec![equation::heat_diffusion],
     );
     block.add_layer(
         (0.5, 0., 0.5),
@@ -45,13 +49,14 @@ fn main() {
         ny,
         nz,
         &boundary_conditions,
+        vec![equation::heat_diffusion],
     );
 
     let t_end: f64 = 0.001;
     let mut t = 0.;
     let mut it = 0;
     let h: f64 = 0.000001;
-    let mut x = DVector::from_element(4 * nx * ny * nz, 0.);
+    let mut x = DVector::from_element(block.vec_size(), 0.);
     let start = Instant::now();
     while t < t_end {
         //println!("Time = {} s", t);
