@@ -134,7 +134,7 @@ impl Face {
 pub enum CellType {
     Internal,
     Boundary(BoundaryCondition),
-    None,
+    Nil,
 }
 
 #[derive(Clone, Debug)]

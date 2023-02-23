@@ -1,5 +1,5 @@
 use crate::cell;
-use crate::cell::{CellType, Neighbor};
+use crate::cell::{BoundaryCondition::*, CellType::*};
 use crate::mesh;
 use nalgebra::DVector;
 use std::fmt;
@@ -29,85 +29,38 @@ impl Domain {
     }
 
     fn link_cells(&self) {
-        // link cells inside layers
-        for layer_index in 0..self.layers.len() {
-            for cell_index in 0..self.layers[layer_index].grid.len() {
-                self.assign_neighbors((layer_index, cell_index));
-            }
-        }
-    }
-
-    fn assign_neighbors(&self, (layer_index, cell_index): (usize, usize)) {
-        // takes the index of a cell (layer,cell) and assigns the correct value to its cell.face.neighbor
-        // the neighbor must first be found. the criteris is that its cell.face.r is the same
-
-        // each face has a neighbor
-        let n_faces = self.layers[layer_index].grid[cell_index]
-            .borrow()
-            .faces
-            .len();
-        for face_index in 0..n_faces {
-            if matches!(
-                self.layers[layer_index].grid[cell_index].borrow().faces[face_index].neighbor,
-                Some(_)
-            ) {
-                continue;
-            }
-            // could be in any layer
-            for neighbor_layer_index in 0..self.layers.len() {
-                // could be any cell
-                for neighbor_cell_index in 0..self.layers[neighbor_layer_index].grid.len() {
-                    if (neighbor_layer_index, neighbor_cell_index) == (layer_index, cell_index) {
-                        continue;
-                    }
-                    // could be any of its faces
-                    let n_faces_neighbor = self.layers[neighbor_layer_index].grid
-                        [neighbor_cell_index]
-                        .borrow()
-                        .faces
-                        .len();
-                    for neighbor_face_index in 0..n_faces_neighbor {
-                        if matches!(
-                            self.layers[neighbor_layer_index].grid[neighbor_cell_index]
-                                .borrow()
-                                .faces[neighbor_face_index]
-                                .neighbor,
-                            Some(_)
-                        ) {
+        // compare cells two by two
+        for layer in self.layers.iter() {
+            for cell in layer.cells.iter() {
+                for other_layer in self.layers.iter() {
+                    for other_cell in other_layer.cells.iter() {
+                        // exclude the possibility of them being the same cell
+                        let dr = other_cell.borrow().r - cell.borrow().r;
+                        if dr.norm() < f64::EPSILON {
                             continue;
                         }
-                        // check if the face centers coincide
-                        if (self.layers[neighbor_layer_index].grid[neighbor_cell_index]
-                            .borrow()
-                            .faces[neighbor_face_index]
-                            .center
-                            - self.layers[layer_index].grid[cell_index].borrow().faces[face_index]
-                                .center)
-                            .norm()
-                            .abs()
-                            < f64::EPSILON
+                        // compare faces
+                        for face in cell
+                            .borrow_mut()
+                            .faces
+                            .iter_mut()
+                            .filter(|f| matches!(f.neighbor, None))
                         {
-                            let dr = self.layers[neighbor_layer_index].grid[neighbor_cell_index]
-                                .borrow()
-                                .r
-                                - self.layers[layer_index].grid[cell_index].borrow().r;
-                            self.layers[layer_index].grid[cell_index].borrow_mut().faces
-                                [face_index]
-                                .neighbor = Some(Neighbor {
-                                cell: Rc::clone(
-                                    &self.layers[neighbor_layer_index].grid[neighbor_cell_index],
-                                ),
-                                dr: dr,
-                                distance: dr.norm(),
-                            });
-                            self.layers[neighbor_layer_index].grid[neighbor_cell_index]
-                                .borrow_mut()
-                                .faces[neighbor_face_index]
-                                .neighbor = Some(Neighbor {
-                                cell: Rc::clone(&self.layers[layer_index].grid[cell_index]),
-                                dr: -dr,
-                                distance: dr.norm(),
-                            });
+                            for other_face in other_cell.borrow_mut().faces.iter_mut() {
+                                // pair up faces that matched
+                                if (face.center - other_face.center).norm() < f64::EPSILON {
+                                    face.neighbor = Some(cell::Neighbor {
+                                        cell: Rc::clone(other_cell),
+                                        dr: dr,
+                                        distance: dr.norm(),
+                                    });
+                                    other_face.neighbor = Some(cell::Neighbor {
+                                        cell: Rc::clone(cell),
+                                        dr: -dr,
+                                        distance: dr.norm(),
+                                    });
+                                }
+                            }
                         }
                     }
                 }
@@ -116,28 +69,23 @@ impl Domain {
     }
 
     pub fn enforce_boundary_conditions(&mut self) {
-        for layer_id in 0..self.layers.len() {
-            for cell_id in 0..self.layers[layer_id].grid.len() {
-                let bc = self.layers[layer_id].grid[cell_id].borrow().variant.clone();
-                if let cell::CellType::Boundary(cell::BoundaryCondition::Dirichlet(val)) = bc {
-                    self.layers[layer_id].grid[cell_id].borrow_mut().T = val;
-                } else if let cell::CellType::Boundary(cell::BoundaryCondition::Neumann(val)) = bc {
-                    if self.layers[layer_id].grid[cell_id].borrow().faces.len() != 1 {
+        for layer in self.layers.iter() {
+            for cell in layer.cells.iter() {
+                let bc = cell.borrow().variant.clone();
+                if let Boundary(Dirichlet(val)) = bc {
+                    cell.borrow_mut().T = val;
+                } else if let Boundary(Neumann(val)) = bc {
+                    if cell.borrow().faces.len() != 1 {
                         panic!("boundary cells should only have a single neighbor");
-                    } else {
-                        // TODO: only true for val = 0
-                        if self.layers[layer_id].grid[cell_id].borrow().faces.len() != 1 {
-                            panic!("why does the boundary cell have more than one neighbor ?")
-                        }
-                        let boundary_value = self.layers[layer_id].grid[cell_id].borrow().faces[0]
-                            .neighbor
-                            .as_ref()
-                            .unwrap()
-                            .cell
-                            .borrow()
-                            .T; // gotta check if there is more than one face
-                        self.layers[layer_id].grid[cell_id].borrow_mut().T = boundary_value;
                     }
+                    let boundary_value = cell.borrow().faces[0]
+                        .neighbor
+                        .as_ref()
+                        .unwrap()
+                        .cell
+                        .borrow()
+                        .T; // gotta check if there is more than one face
+                    cell.borrow_mut().T = boundary_value;
                 }
             }
         }
@@ -148,10 +96,10 @@ impl Domain {
         let mut i = 0;
         for layer in self.layers.iter() {
             for p in layer
-                .grid
+                .cells
                 .iter()
                 .map(|c| c.borrow())
-                .filter(|c| matches!(c.variant, CellType::Internal))
+                .filter(|c| matches!(c.variant, Internal))
             {
                 let mut flux = 0.;
                 for f in p.faces.iter() {
@@ -169,8 +117,8 @@ impl Domain {
         // takes the solution and updates every cell with it
         let mut i = 0;
         for layer in self.layers.iter() {
-            for mut cell in layer.grid.iter().map(|c| c.borrow_mut()) {
-                if matches!(cell.variant, CellType::Internal) {
+            for mut cell in layer.cells.iter().map(|c| c.borrow_mut()) {
+                if matches!(cell.variant, Internal) {
                     cell.T = y[i];
                     i += 1;
                 }
@@ -189,5 +137,26 @@ impl fmt::Debug for Domain {
 impl Default for Domain {
     fn default() -> Self {
         Domain::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cell::BoundaryCondition;
+    use crate::solver;
+    #[test]
+    fn test_generation() {
+        let boundary_conditions = [
+            BoundaryCondition::Dirichlet(300.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Dirichlet(0.),
+            BoundaryCondition::Neumann(0.),
+            BoundaryCondition::Neumann(0.),
+        ];
+        let (nx, ny, nz) = (3, 1, 1);
+        let mut block: solver::Domain;
+        block = solver::Domain::new();
+        block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, boundary_conditions);
     }
 }
