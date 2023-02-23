@@ -4,6 +4,10 @@ use nalgebra::{Point3, Vector3};
 use std::fmt;
 use std::rc::Rc;
 
+////////////
+/// CELL ///
+////////////
+
 #[allow(non_snake_case)]
 #[derive(Clone)]
 pub struct Cell {
@@ -81,6 +85,32 @@ impl Cell {
     }
 }
 
+impl fmt::Debug for Cell {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:.1}", self.T)
+    }
+}
+
+impl Default for Cell {
+    fn default() -> Self {
+        Cell {
+            r: Point3::new(0., 0., 0.),
+            vertices: Vec::new(),
+            volume: 0.,
+            T: 0.0,
+            rho: 9000.0,
+            cp: 0.001,
+            lambda: 300.,
+            variant: CellType::Internal,
+            faces: Vec::new(),
+        }
+    }
+}
+
+/////////////////////////
+/// NEIGHBOR and FACE ///
+/// /////////////////////
+
 #[derive(Clone)]
 pub struct Neighbor {
     pub cell: Rc<RefCell<Cell>>,
@@ -130,6 +160,10 @@ impl Face {
     }
 }
 
+//////////////////////////////////////
+/// CELLTYPE and BOUNDARYCONDITION ///
+//////////////////////////////////////
+
 #[derive(Clone, Debug)]
 pub enum CellType {
     Internal,
@@ -141,26 +175,4 @@ pub enum CellType {
 pub enum BoundaryCondition {
     Dirichlet(f64),
     Neumann(f64),
-}
-
-impl fmt::Debug for Cell {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:.1}", self.T)
-    }
-}
-
-impl Default for Cell {
-    fn default() -> Self {
-        Cell {
-            r: Point3::new(0., 0., 0.),
-            vertices: Vec::new(),
-            volume: 0.,
-            T: 0.0,
-            rho: 9000.0,
-            cp: 0.001,
-            lambda: 300.,
-            variant: CellType::Internal,
-            faces: Vec::new(),
-        }
-    }
 }
