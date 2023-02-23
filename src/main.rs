@@ -14,7 +14,7 @@ fn main() {
     let (nx, ny, nz) = (100, 1, 40);
     let mut block: solver::Domain;
     block = solver::Domain::new();
-    block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, boundary_conditions);
+    block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &boundary_conditions);
 
     let t_end: f64 = 0.001;
     let mut t = 0.;

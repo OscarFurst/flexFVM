@@ -26,7 +26,7 @@ impl Mesh {
         nx: usize,
         ny: usize,
         nz: usize,
-        bc: [BoundaryCondition; 6],
+        bc: &[BoundaryCondition; 6],
     ) -> Mesh {
         // generates a regular grid of rectangular cells
         // TODO: I could not think of an elegant way to pass boundary conditions
@@ -109,7 +109,7 @@ mod tests {
             BoundaryCondition::Neumann(0.),
         ];
         let (nx, ny, nz) = (2, 2, 2);
-        let layer = Mesh::generate((0., 0., 0.), (1., 1., 1.), nx, ny, nz, bc);
+        let layer = Mesh::generate((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &bc);
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }
@@ -127,7 +127,7 @@ mod tests {
             BoundaryCondition::Neumann(0.),
         ];
         let (nx, ny, nz) = (100, 1, 1);
-        let layer = Mesh::generate((0., 0., 0.), (1., 1., 1.), nx, ny, nz, bc);
+        let layer = Mesh::generate((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &bc);
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }

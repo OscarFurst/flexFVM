@@ -21,7 +21,7 @@ impl Domain {
         nx: usize,
         ny: usize,
         nz: usize,
-        bc: [cell::BoundaryCondition; 6],
+        bc: &[cell::BoundaryCondition; 6],
     ) {
         self.layers
             .push(mesh::Mesh::generate(r1, r2, nx, ny, nz, bc));
@@ -157,6 +157,6 @@ mod tests {
         let (nx, ny, nz) = (3, 1, 1);
         let mut block: solver::Domain;
         block = solver::Domain::new();
-        block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, boundary_conditions);
+        block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &boundary_conditions);
     }
 }
