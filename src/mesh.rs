@@ -78,6 +78,43 @@ impl Mesh {
         }
         mesh
     }
+
+    pub fn link(self) -> Self {
+        // compare cells two by two
+        for cell in self.cells.iter() {
+            for other_cell in self.cells.iter() {
+                // exclude the possibility of them being the same cell
+                let dr = other_cell.borrow().r - cell.borrow().r;
+                if dr.norm() < f64::EPSILON {
+                    continue;
+                }
+                // compare faces
+                for face in cell
+                    .borrow_mut()
+                    .faces
+                    .iter_mut()
+                    .filter(|f| matches!(f.neighbor, None))
+                {
+                    for other_face in other_cell.borrow_mut().faces.iter_mut() {
+                        // pair up faces that matched
+                        if (face.center - other_face.center).norm() < f64::EPSILON {
+                            face.neighbor = Some(Neighbor {
+                                cell: Rc::clone(other_cell),
+                                dr: dr,
+                                distance: dr.norm(),
+                            });
+                            other_face.neighbor = Some(Neighbor {
+                                cell: Rc::clone(cell),
+                                dr: -dr,
+                                distance: dr.norm(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        self
+    }
 }
 
 impl fmt::Debug for Mesh {

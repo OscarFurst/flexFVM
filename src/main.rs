@@ -11,16 +11,47 @@ fn main() {
         BoundaryCondition::Neumann(0.),
         BoundaryCondition::Neumann(0.),
     ];
-    let (nx, ny, nz) = (100, 1, 40);
+    let (nx, ny, nz) = (50, 1, 20);
     let mut block: solver::Domain;
     block = solver::Domain::new();
-    block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &boundary_conditions);
+    block.add_layer(
+        (0., 0., 0.),
+        (0.5, 1., 0.5),
+        nx,
+        ny,
+        nz,
+        &boundary_conditions,
+    );
+    block.add_layer(
+        (0.5, 0., 0.),
+        (1., 1., 0.5),
+        nx,
+        ny,
+        nz,
+        &boundary_conditions,
+    );
+    block.add_layer(
+        (0., 0., 0.5),
+        (0.5, 1., 1.),
+        nx,
+        ny,
+        nz,
+        &boundary_conditions,
+    );
+    block.add_layer(
+        (0.5, 0., 0.5),
+        (1., 1., 1.),
+        nx,
+        ny,
+        nz,
+        &boundary_conditions,
+    );
 
     let t_end: f64 = 0.001;
     let mut t = 0.;
     let mut it = 0;
     let h: f64 = 0.000001;
-    let mut x = DVector::from_element(nx * ny * nz, 0.);
+    let mut x = DVector::from_element(4 * nx * ny * nz, 0.);
     let start = Instant::now();
     while t < t_end {
         //println!("Time = {} s", t);

@@ -1,4 +1,4 @@
-use crate::cell;
+use crate::cell::{self, Neighbor};
 use crate::cell::{BoundaryCondition::*, CellType::*};
 use crate::mesh;
 use nalgebra::DVector;
@@ -24,44 +24,64 @@ impl Domain {
         bc: &[cell::BoundaryCondition; 6],
     ) {
         self.layers
-            .push(mesh::Mesh::generate(r1, r2, nx, ny, nz, bc));
-        self.link_cells()
+            .push(mesh::Mesh::generate(r1, r2, nx, ny, nz, bc).link());
+        self.join_layers();
     }
 
-    fn link_cells(&self) {
-        // compare cells two by two
+    fn join_layers(&self) {
+        let mut to_pop = vec![];
         for layer in self.layers.iter() {
-            for cell in layer.cells.iter() {
-                for other_layer in self.layers.iter() {
+            for other_layer in self.layers.iter() {
+                if std::ptr::eq(layer, other_layer) {
+                    continue;
+                }
+                for cell in layer.cells.iter() {
+                    if matches!(cell.borrow().variant, cell::CellType::Internal) {
+                        continue;
+                    }
                     for other_cell in other_layer.cells.iter() {
-                        // exclude the possibility of them being the same cell
-                        let dr = other_cell.borrow().r - cell.borrow().r;
-                        if dr.norm() < f64::EPSILON {
+                        if matches!(other_cell.borrow().variant, cell::CellType::Internal) {
                             continue;
                         }
-                        // compare faces
-                        for face in cell
-                            .borrow_mut()
-                            .faces
-                            .iter_mut()
-                            .filter(|f| matches!(f.neighbor, None))
-                        {
-                            for other_face in other_cell.borrow_mut().faces.iter_mut() {
-                                // pair up faces that matched
-                                if (face.center - other_face.center).norm() < f64::EPSILON {
-                                    face.neighbor = Some(cell::Neighbor {
-                                        cell: Rc::clone(other_cell),
-                                        dr: dr,
-                                        distance: dr.norm(),
-                                    });
-                                    other_face.neighbor = Some(cell::Neighbor {
-                                        cell: Rc::clone(cell),
-                                        dr: -dr,
-                                        distance: dr.norm(),
-                                    });
-                                }
-                            }
+                        let r = cell.borrow().faces[0].center;
+                        if (r - other_cell.borrow().faces[0].center).norm() < f64::EPSILON {
+                            // we found a pair
+                            // make copies of the cells they are pointing to
+                            let cell_ref =
+                                Rc::clone(&cell.borrow().faces[0].neighbor.as_ref().unwrap().cell);
+                            let other_cell_ref = Rc::clone(
+                                &other_cell.borrow().faces[0].neighbor.as_ref().unwrap().cell,
+                            );
+                            let other_cell_ref_givaway = Rc::clone(
+                                &other_cell.borrow().faces[0].neighbor.as_ref().unwrap().cell,
+                            );
+                            let dr = other_cell_ref.borrow().r - cell_ref.borrow().r;
+
+                            cell_ref
+                                .borrow_mut()
+                                .faces
+                                .iter_mut()
+                                .find(|f| (r - f.center).norm() < f64::EPSILON)
+                                .unwrap() // found the right face
+                                .neighbor = Some(Neighbor {
+                                cell: other_cell_ref_givaway,
+                                dr: dr,
+                                distance: dr.norm(),
+                            });
+                            other_cell_ref
+                                .borrow_mut()
+                                .faces
+                                .iter_mut()
+                                .find(|f| (r - f.center).norm() < f64::EPSILON)
+                                .unwrap() // found the right face
+                                .neighbor = Some(Neighbor {
+                                cell: cell_ref,
+                                dr: -dr,
+                                distance: dr.norm(),
+                            });
                         }
+                        to_pop.push(Rc::clone(cell));
+                        to_pop.push(Rc::clone(other_cell));
                     }
                 }
             }
@@ -130,7 +150,10 @@ impl Domain {
 
 impl fmt::Debug for Domain {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.layers[0])
+        for layer in self.layers.iter() {
+            write!(f, "{:?}", layer)?
+        }
+        write!(f, " ")
     }
 }
 
