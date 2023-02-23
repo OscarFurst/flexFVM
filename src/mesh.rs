@@ -6,7 +6,7 @@ use std::{fmt, rc::Rc};
 
 #[allow(non_snake_case)]
 pub struct Mesh {
-    pub grid: Vec<Rc<RefCell<Cell>>>,
+    pub cells: Vec<Rc<RefCell<Cell>>>,
     pub boundaries: [(Point3<f64>, Vector3<f64>, BoundaryCondition); 6],
     pub n_eq: usize,
 }
@@ -14,8 +14,8 @@ pub struct Mesh {
 #[allow(dead_code)]
 impl Mesh {
     pub fn update(&mut self, x: &DVector<f64>) {
-        for ii in 0..self.grid.len() {
-            self.grid[ii].borrow_mut().T = x[ii]; // TODO: needs some form of indexing once we have more equations
+        for ii in 0..self.cells.len() {
+            self.cells[ii].borrow_mut().T = x[ii]; // TODO: needs some form of indexing once we have more equations
         }
     }
 
@@ -45,7 +45,7 @@ impl Mesh {
             (ending, ez, bc[5].clone()),
         ];
         let mut mesh = Mesh {
-            grid: Vec::new(),
+            cells: Vec::new(),
             boundaries: boundaries.clone(),
             n_eq: 1,
         };
@@ -68,11 +68,11 @@ impl Mesh {
                             // search for corresponding boundary condition
                             let boundary_cell =
                                 Cell::boundary_from_cell(&cell, normal, face, bc.clone());
-                            mesh.grid.push(Rc::new(RefCell::new(boundary_cell)));
+                            mesh.cells.push(Rc::new(RefCell::new(boundary_cell)));
                         }
                     }
                     // neighbors can be set from a specialized routine that uses the vertices of the cells. it is needed anyway to merge multiple layers
-                    mesh.grid.push(Rc::new(RefCell::new(cell)));
+                    mesh.cells.push(Rc::new(RefCell::new(cell)));
                 }
             }
         }
@@ -84,7 +84,7 @@ impl fmt::Debug for Mesh {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[ ")?;
         for cell in self
-            .grid
+            .cells
             .iter()
             .map(|rc| rc.borrow())
             .filter(|c| matches!(c.variant, CellType::Internal))
@@ -110,10 +110,10 @@ mod tests {
         ];
         let (nx, ny, nz) = (2, 2, 2);
         let layer = Mesh::generate((0., 0., 0.), (1., 1., 1.), nx, ny, nz, bc);
-        for cell in layer.grid.iter().map(|rc| rc.borrow()) {
+        for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }
-        assert_eq!(layer.grid.len(), 32);
+        assert_eq!(layer.cells.len(), 32);
     }
 
     #[test]
@@ -128,12 +128,12 @@ mod tests {
         ];
         let (nx, ny, nz) = (100, 1, 1);
         let layer = Mesh::generate((0., 0., 0.), (1., 1., 1.), nx, ny, nz, bc);
-        for cell in layer.grid.iter().map(|rc| rc.borrow()) {
+        for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }
-        println!("Cell volume : {}", layer.grid[0].borrow().volume);
+        println!("Cell volume : {}", layer.cells[0].borrow().volume);
         assert_eq!(
-            layer.grid.len(),
+            layer.cells.len(),
             (nx + 2) * (ny + 2) * (nz + 2) - 4 * nx - 4 * ny - 4 * nz - 8
         );
     }
