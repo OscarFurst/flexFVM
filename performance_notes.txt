@@ -5,3 +5,6 @@ for 10000 iterations (100s with 0.01s step) on a 100x1x40 mesh : 98009 ms (debug
 
 After optimization :
 for 10000 iterations (100s with 0.01s step) on a 100x1x40 mesh : 67848 ms (debug) - 1730 ms, 1817 ms, 1767 ms (release)
+
+Using RefCells :
+for 10000 iterations (100s with 0.01s step) on a 100x1x40 mesh : way too long (debug) - 243 ms, 259 ms, 232 ms (release)
