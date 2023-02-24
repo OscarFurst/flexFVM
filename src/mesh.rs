@@ -1,6 +1,6 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
 use crate::cell::*;
-use debug_cell::RefCell;
+use debug_cell::{Ref, RefCell};
 use nalgebra::{DVector, Point3, Vector3};
 use std::{fmt, rc::Rc};
 
@@ -8,7 +8,7 @@ use std::{fmt, rc::Rc};
 pub struct Mesh {
     pub cells: Vec<Rc<RefCell<Cell>>>,
     pub boundaries: [(Point3<f64>, Vector3<f64>, BoundaryCondition); 6],
-    pub n_eq: usize,
+    equations: Vec<fn(&Ref<Cell>) -> f64>,
 }
 
 #[allow(dead_code)]
@@ -19,6 +19,14 @@ impl Mesh {
         }
     }
 
+    pub fn n_eq(&self) -> usize {
+        self.cells
+            .iter()
+            .filter(|c| matches!(c.borrow().variant, CellType::Internal))
+            .count()
+            * self.equations.len()
+    }
+
     #[allow(non_snake_case)]
     pub fn generate(
         r1: (f64, f64, f64),
@@ -27,6 +35,7 @@ impl Mesh {
         ny: usize,
         nz: usize,
         bc: &[BoundaryCondition; 6],
+        equations: Vec<fn(&Ref<Cell>) -> f64>,
     ) -> Mesh {
         // generates a regular grid of rectangular cells
         // TODO: I could not think of an elegant way to pass boundary conditions
@@ -47,7 +56,7 @@ impl Mesh {
         let mut mesh = Mesh {
             cells: Vec::new(),
             boundaries: boundaries.clone(),
-            n_eq: 1,
+            equations,
         };
         for i in 0..nx {
             for j in 0..ny {
@@ -115,6 +124,21 @@ impl Mesh {
         }
         self
     }
+
+    pub fn equations(&self) -> Vec<f64> {
+        let mut y = vec![];
+        for p in self
+            .cells
+            .iter()
+            .map(|c| c.borrow())
+            .filter(|c| matches!(c.variant, CellType::Internal))
+        {
+            for eq in self.equations.iter() {
+                y.push((eq)(&p));
+            }
+        }
+        y
+    }
 }
 
 impl fmt::Debug for Mesh {
@@ -134,7 +158,7 @@ impl fmt::Debug for Mesh {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cell::BoundaryCondition, mesh::Mesh};
+    use crate::{cell::BoundaryCondition, equation::heat_diffusion, mesh::Mesh};
     #[test]
     fn test_generation() {
         let bc = [
@@ -146,7 +170,15 @@ mod tests {
             BoundaryCondition::Neumann(0.),
         ];
         let (nx, ny, nz) = (2, 2, 2);
-        let layer = Mesh::generate((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &bc);
+        let layer = Mesh::generate(
+            (0., 0., 0.),
+            (1., 1., 1.),
+            nx,
+            ny,
+            nz,
+            &bc,
+            vec![heat_diffusion],
+        );
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }
@@ -164,7 +196,15 @@ mod tests {
             BoundaryCondition::Neumann(0.),
         ];
         let (nx, ny, nz) = (100, 1, 1);
-        let layer = Mesh::generate((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &bc);
+        let layer = Mesh::generate(
+            (0., 0., 0.),
+            (1., 1., 1.),
+            nx,
+            ny,
+            nz,
+            &bc,
+            vec![heat_diffusion],
+        );
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }

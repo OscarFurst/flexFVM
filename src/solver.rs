@@ -1,6 +1,5 @@
 use crate::cell::{self, BoundaryCondition::*, CellType::*};
 use crate::cell::{Cell, Neighbor};
-use crate::equation;
 use crate::mesh;
 use debug_cell::Ref;
 use nalgebra::DVector;
@@ -9,26 +8,17 @@ use std::rc::Rc;
 
 pub struct Domain {
     layers: Vec<mesh::Mesh>,
-    equations: Vec<fn(&Ref<Cell>) -> f64>,
 }
 
 impl Domain {
     pub fn new() -> Self {
-        Domain {
-            layers: Vec::new(),
-            equations: Vec::new(),
-        }
+        Domain { layers: Vec::new() }
     }
 
     pub fn vec_size(&self) -> usize {
         let mut n = 0;
         for layer in self.layers.iter() {
-            n += layer
-                .cells
-                .iter()
-                .filter(|c| matches!(c.borrow().variant, Internal))
-                .count()
-                * self.equations.len();
+            n += layer.n_eq();
         }
         n
     }
@@ -44,9 +34,8 @@ impl Domain {
         eq: Vec<fn(&Ref<Cell>) -> f64>,
     ) {
         self.layers
-            .push(mesh::Mesh::generate(r1, r2, nx, ny, nz, bc).link());
+            .push(mesh::Mesh::generate(r1, r2, nx, ny, nz, bc, eq).link());
         self.join_layers();
-        self.equations = eq;
     }
 
     fn join_layers(&self) {
@@ -133,22 +122,11 @@ impl Domain {
     }
 
     pub fn setup_equations(&self, _t: &f64, x: &DVector<f64>) -> DVector<f64> {
-        let mut y = DVector::from_element(x.len(), 0.);
-        let mut i = 0;
+        let mut y = vec![];
         for layer in self.layers.iter() {
-            for p in layer
-                .cells
-                .iter()
-                .map(|c| c.borrow())
-                .filter(|c| matches!(c.variant, Internal))
-            {
-                for eq in self.equations.iter() {
-                    y[i] = (eq)(&p);
-                    i += 1;
-                }
-            }
+            y.append(&mut layer.equations());
         }
-        y
+        DVector::from_vec(y)
     }
 
     pub fn update(&mut self, y: &DVector<f64>) {
