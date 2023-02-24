@@ -1,5 +1,6 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
 use crate::cell::*;
+use crate::cell::{BoundaryCondition::*, CellType::*};
 use debug_cell::{Ref, RefCell};
 use nalgebra::{DVector, Point3, Vector3};
 use std::{fmt, rc::Rc};
@@ -138,6 +139,27 @@ impl Mesh {
             }
         }
         y
+    }
+
+    pub fn boundary_conditions(&self) {
+        for cell in self.cells.iter() {
+            let bc = cell.borrow().variant.clone();
+            if let Boundary(Dirichlet(val)) = bc {
+                cell.borrow_mut().T = val;
+            } else if let Boundary(Neumann(val)) = bc {
+                if cell.borrow().faces.len() != 1 {
+                    panic!("boundary cells should only have a single neighbor");
+                }
+                let boundary_value = cell.borrow().faces[0]
+                    .neighbor
+                    .as_ref()
+                    .unwrap()
+                    .cell
+                    .borrow()
+                    .T; // gotta check if there is more than one face
+                cell.borrow_mut().T = boundary_value;
+            }
+        }
     }
 }
 

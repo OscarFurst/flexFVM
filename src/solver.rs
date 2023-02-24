@@ -1,4 +1,4 @@
-use crate::cell::{self, BoundaryCondition::*, CellType::*};
+use crate::cell::{self};
 use crate::cell::{Cell, Neighbor};
 use crate::mesh;
 use debug_cell::Ref;
@@ -100,24 +100,7 @@ impl Domain {
 
     pub fn enforce_boundary_conditions(&mut self) {
         for layer in self.layers.iter() {
-            for cell in layer.cells.iter() {
-                let bc = cell.borrow().variant.clone();
-                if let Boundary(Dirichlet(val)) = bc {
-                    cell.borrow_mut().T = val;
-                } else if let Boundary(Neumann(val)) = bc {
-                    if cell.borrow().faces.len() != 1 {
-                        panic!("boundary cells should only have a single neighbor");
-                    }
-                    let boundary_value = cell.borrow().faces[0]
-                        .neighbor
-                        .as_ref()
-                        .unwrap()
-                        .cell
-                        .borrow()
-                        .T; // gotta check if there is more than one face
-                    cell.borrow_mut().T = boundary_value;
-                }
-            }
+            layer.boundary_conditions();
         }
     }
 
@@ -134,7 +117,7 @@ impl Domain {
         let mut i = 0;
         for layer in self.layers.iter() {
             for mut cell in layer.cells.iter().map(|c| c.borrow_mut()) {
-                if matches!(cell.variant, Internal) {
+                if matches!(cell.variant, cell::CellType::Internal) {
                     cell.T = y[i];
                     i += 1;
                 }
