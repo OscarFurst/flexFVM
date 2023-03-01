@@ -1,16 +1,19 @@
-use flex_fvm::equation;
-use flex_fvm::{cell::BoundaryCondition, solver};
+use debug_cell::RefMut;
+use flex_fvm::{cell::Cell, equation, solver};
 use nalgebra::DVector;
 use std::time::Instant;
 
 fn main() {
-    let boundary_conditions = [
-        BoundaryCondition::Dirichlet(300.),
-        BoundaryCondition::Neumann(0.),
-        BoundaryCondition::Neumann(0.),
-        BoundaryCondition::Dirichlet(0.),
-        BoundaryCondition::Neumann(0.),
-        BoundaryCondition::Neumann(0.),
+    let bc1: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 300.);
+    let bc2: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_neumann, 0.);
+    let bc3: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 0.);
+    let boundary_conditions: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6] = [
+        vec![bc1],
+        vec![bc2],
+        vec![bc2],
+        vec![bc3],
+        vec![bc2],
+        vec![bc2],
     ];
     let (nx, ny, nz) = (50, 1, 20);
     let mut block: solver::Domain;
@@ -21,7 +24,7 @@ fn main() {
         nx,
         ny,
         nz,
-        &boundary_conditions,
+        boundary_conditions.clone(),
         vec![equation::heat_diffusion],
     );
     block.add_layer(
@@ -30,7 +33,7 @@ fn main() {
         nx,
         ny,
         nz,
-        &boundary_conditions,
+        boundary_conditions.clone(),
         vec![equation::heat_diffusion],
     );
     block.add_layer(
@@ -39,7 +42,7 @@ fn main() {
         nx,
         ny,
         nz,
-        &boundary_conditions,
+        boundary_conditions.clone(),
         vec![equation::heat_diffusion],
     );
     block.add_layer(
@@ -48,7 +51,7 @@ fn main() {
         nx,
         ny,
         nz,
-        &boundary_conditions,
+        boundary_conditions.clone(),
         vec![equation::heat_diffusion],
     );
 

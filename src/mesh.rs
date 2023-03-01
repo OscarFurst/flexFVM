@@ -1,22 +1,25 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
+use crate::cell::CellType::*;
 use crate::cell::*;
-use crate::cell::{BoundaryCondition::*, CellType::*};
-use debug_cell::{Ref, RefCell};
+use debug_cell::{Ref, RefCell, RefMut};
 use nalgebra::{DVector, Point3, Vector3};
 use std::{fmt, rc::Rc};
 
-#[allow(non_snake_case)]
 pub struct Mesh {
     pub cells: Vec<Rc<RefCell<Cell>>>,
-    pub boundaries: [(Point3<f64>, Vector3<f64>, BoundaryCondition); 6],
+    pub boundaries: [(
+        Point3<f64>,
+        Vector3<f64>,
+        Vec<(fn(&mut RefMut<Cell>, f64), f64)>,
+    ); 6],
     equations: Vec<fn(&Ref<Cell>) -> f64>,
 }
 
 #[allow(dead_code)]
 impl Mesh {
     pub fn update(&mut self, x: &DVector<f64>) {
-        for ii in 0..self.cells.len() {
-            self.cells[ii].borrow_mut().T = x[ii]; // TODO: needs some form of indexing once we have more equations
+        for i in 0..self.cells.len() {
+            self.cells[i].borrow_mut().T = x[i]; // TODO: needs some form of indexing once we have more equations
         }
     }
 
@@ -35,7 +38,7 @@ impl Mesh {
         nx: usize,
         ny: usize,
         nz: usize,
-        bc: &[BoundaryCondition; 6],
+        bc: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6],
         equations: Vec<fn(&Ref<Cell>) -> f64>,
     ) -> Mesh {
         // generates a regular grid of rectangular cells
@@ -143,21 +146,12 @@ impl Mesh {
 
     pub fn boundary_conditions(&self) {
         for cell in self.cells.iter() {
-            let bc = cell.borrow().variant.clone();
-            if let Boundary(Dirichlet(val)) = bc {
-                cell.borrow_mut().T = val;
-            } else if let Boundary(Neumann(val)) = bc {
-                if cell.borrow().faces.len() != 1 {
-                    panic!("boundary cells should only have a single neighbor");
+            let variantclone = cell.borrow().variant.clone();
+            if let Boundary(bc_vector) = variantclone {
+                // TODO: cloning here seems like overkill
+                for (function, value) in bc_vector {
+                    function(&mut cell.borrow_mut(), value);
                 }
-                let boundary_value = cell.borrow().faces[0]
-                    .neighbor
-                    .as_ref()
-                    .unwrap()
-                    .cell
-                    .borrow()
-                    .T; // gotta check if there is more than one face
-                cell.borrow_mut().T = boundary_value;
             }
         }
     }
@@ -180,16 +174,20 @@ impl fmt::Debug for Mesh {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cell::BoundaryCondition, equation::heat_diffusion, mesh::Mesh};
+    use crate::{cell::Cell, equation, mesh::Mesh};
+    use debug_cell::RefMut;
     #[test]
     fn test_generation() {
-        let bc = [
-            BoundaryCondition::Dirichlet(300.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Dirichlet(0.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Neumann(0.),
+        let bc1: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 300.);
+        let bc2: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_neumann, 0.);
+        let bc3: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 0.);
+        let bc: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6] = [
+            vec![bc1],
+            vec![bc2],
+            vec![bc2],
+            vec![bc3],
+            vec![bc2],
+            vec![bc2],
         ];
         let (nx, ny, nz) = (2, 2, 2);
         let layer = Mesh::generate(
@@ -198,8 +196,8 @@ mod tests {
             nx,
             ny,
             nz,
-            &bc,
-            vec![heat_diffusion],
+            bc,
+            vec![equation::heat_diffusion],
         );
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
@@ -209,13 +207,16 @@ mod tests {
 
     #[test]
     fn test_large_mesh() {
-        let bc = [
-            BoundaryCondition::Dirichlet(300.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Dirichlet(0.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Neumann(0.),
+        let bc1: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 300.);
+        let bc2: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_neumann, 0.);
+        let bc3: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 0.);
+        let bc: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6] = [
+            vec![bc1],
+            vec![bc2],
+            vec![bc2],
+            vec![bc3],
+            vec![bc2],
+            vec![bc2],
         ];
         let (nx, ny, nz) = (100, 1, 1);
         let layer = Mesh::generate(
@@ -224,8 +225,8 @@ mod tests {
             nx,
             ny,
             nz,
-            &bc,
-            vec![heat_diffusion],
+            bc,
+            vec![equation::heat_diffusion],
         );
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);

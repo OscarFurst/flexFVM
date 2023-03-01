@@ -1,7 +1,7 @@
 use crate::cell::{self};
 use crate::cell::{Cell, Neighbor};
 use crate::mesh;
-use debug_cell::Ref;
+use debug_cell::{Ref, RefMut};
 use nalgebra::DVector;
 use std::fmt;
 use std::rc::Rc;
@@ -30,7 +30,7 @@ impl Domain {
         nx: usize,
         ny: usize,
         nz: usize,
-        bc: &[cell::BoundaryCondition; 6],
+        bc: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6],
         eq: Vec<fn(&Ref<Cell>) -> f64>,
     ) {
         self.layers
@@ -144,17 +144,20 @@ impl Default for Domain {
 
 #[cfg(test)]
 mod tests {
-    use crate::cell::BoundaryCondition;
-    use crate::{equation, solver};
+    use crate::{cell::Cell, equation, solver};
+    use debug_cell::RefMut;
     #[test]
     fn test_generation() {
-        let boundary_conditions = [
-            BoundaryCondition::Dirichlet(300.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Dirichlet(0.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Neumann(0.),
+        let bc1: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 300.);
+        let bc2: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_neumann, 0.);
+        let bc3: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 0.);
+        let boundary_conditions: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6] = [
+            vec![bc1],
+            vec![bc2],
+            vec![bc2],
+            vec![bc3],
+            vec![bc2],
+            vec![bc2],
         ];
         let (nx, ny, nz) = (3, 1, 1);
         let mut block: solver::Domain;
@@ -165,7 +168,7 @@ mod tests {
             nx,
             ny,
             nz,
-            &boundary_conditions,
+            boundary_conditions,
             vec![equation::heat_diffusion],
         );
     }

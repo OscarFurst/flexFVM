@@ -1,5 +1,5 @@
 // for now all cells are rectangular parallelepipeds
-use debug_cell::RefCell;
+use debug_cell::{RefCell, RefMut};
 use nalgebra::{Point3, Vector3};
 use std::fmt;
 use std::rc::Rc;
@@ -9,7 +9,6 @@ use std::rc::Rc;
 ////////////
 
 #[allow(non_snake_case)]
-#[derive(Clone)]
 pub struct Cell {
     // geometric properties
     pub r: Point3<f64>, // m
@@ -69,7 +68,7 @@ impl Cell {
         cell: &Cell,
         normal: &Vector3<f64>,
         face: &Face,
-        bc: BoundaryCondition,
+        bc: Vec<(fn(&mut RefMut<Cell>, f64), f64)>,
     ) -> Cell {
         // creates a new "boundary cell" from the provided internal cell
         // the boundary condition is not linked to the cell after the function, it needs to be done when linking the cells
@@ -163,16 +162,15 @@ impl Face {
 //////////////////////////////////////
 /// CELLTYPE and BOUNDARYCONDITION ///
 //////////////////////////////////////
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum CellType {
     Internal,
-    Boundary(BoundaryCondition),
+    Boundary(Vec<(fn(&mut RefMut<Cell>, f64), f64)>),
     Nil,
 }
 
-#[derive(Clone, Debug)]
-pub enum BoundaryCondition {
-    Dirichlet(f64),
-    Neumann(f64),
+impl fmt::Debug for CellType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "TODO")
+    }
 }
