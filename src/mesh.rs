@@ -130,7 +130,7 @@ impl Mesh {
     }
 
     pub fn equations(&self) -> Vec<f64> {
-        let mut y = vec![];
+        let mut y = Vec::with_capacity(self.n_eq());
         for p in self
             .cells
             .iter()
