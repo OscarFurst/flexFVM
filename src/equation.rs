@@ -1,31 +1,32 @@
-use crate::cell::Cell;
-use debug_cell::{Ref, RefMut};
-use std::borrow::BorrowMut;
+use crate::cell;
+use debug_cell::Ref;
+
+#[derive(Clone, Copy)]
+pub struct BoundaryCondition(pub fn(&mut cell::Properties, &[cell::Face], f64), pub f64);
 
 ///////////////////////////////
 /// Heat diffusion equation ///
 ///////////////////////////////
-pub fn heat_diffusion(p: &Ref<Cell>) -> f64 {
+pub fn heat_diffusion(p: &Ref<cell::Cell>) -> f64 {
     let mut flux = 0.;
     for f in p.faces.iter() {
         let n = f.neighbor.as_ref().unwrap().cell.borrow();
-        flux -= p.lambda * (p.T - n.T) / f.neighbor.as_ref().unwrap().distance * f.area;
+        flux -= p.properties.lambda * (p.properties.T - n.properties.T)
+            / f.neighbor.as_ref().unwrap().distance
+            * f.area;
     }
-    flux / p.volume / p.rho / p.cp
+    flux / p.volume / p.properties.rho / p.properties.cp
 }
 
-pub fn heat_diffusion_dirichlet(p: &mut RefMut<Cell>, T: f64) {
+#[allow(non_snake_case, unused_variables)]
+pub fn heat_diffusion_dirichlet(p: &mut cell::Properties, faces: &[cell::Face], T: f64) {
     p.T = T;
 }
 
-pub fn heat_diffusion_neumann(p: &mut RefMut<Cell>, dTdx: f64) {
-    let mut boundary_value = p.faces[0] // should not be mutably borrowed but somehow gives me an error if I don't...
-        .neighbor
-        .as_ref()
-        .unwrap()
-        .cell
-        .borrow()
-        .T;
-    boundary_value += dTdx * p.borrow_mut().faces[0].neighbor.as_ref().unwrap().distance;
-    p.borrow_mut().T = boundary_value;
+#[allow(non_snake_case)]
+pub fn heat_diffusion_neumann(p: &mut cell::Properties, faces: &[cell::Face], dTdx: f64) {
+    let onlyneighbor = faces[0].neighbor.as_ref().unwrap();
+    let mut boundary_value = onlyneighbor.cell.borrow().properties.T;
+    boundary_value += dTdx * onlyneighbor.distance;
+    p.T = boundary_value;
 }

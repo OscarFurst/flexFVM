@@ -1,17 +1,14 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
 use crate::cell::CellType::*;
 use crate::cell::*;
-use debug_cell::{Ref, RefCell, RefMut};
+use crate::equation;
+use debug_cell::{Ref, RefCell};
 use nalgebra::{DVector, Point3, Vector3};
 use std::{fmt, rc::Rc};
 
 pub struct Mesh {
     pub cells: Vec<Rc<RefCell<Cell>>>,
-    pub boundaries: [(
-        Point3<f64>,
-        Vector3<f64>,
-        Vec<(fn(&mut RefMut<Cell>, f64), f64)>,
-    ); 6],
+    pub boundaries: [(Point3<f64>, Vector3<f64>, Vec<equation::BoundaryCondition>); 6],
     equations: Vec<fn(&Ref<Cell>) -> f64>,
 }
 
@@ -19,7 +16,7 @@ pub struct Mesh {
 impl Mesh {
     pub fn update(&mut self, x: &DVector<f64>) {
         for i in 0..self.cells.len() {
-            self.cells[i].borrow_mut().T = x[i]; // TODO: needs some form of indexing once we have more equations
+            self.cells[i].borrow_mut().properties.T = x[i];
         }
     }
 
@@ -38,7 +35,7 @@ impl Mesh {
         nx: usize,
         ny: usize,
         nz: usize,
-        bc: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6],
+        bc: [Vec<equation::BoundaryCondition>; 6],
         equations: Vec<fn(&Ref<Cell>) -> f64>,
     ) -> Mesh {
         // generates a regular grid of rectangular cells
@@ -146,12 +143,13 @@ impl Mesh {
 
     pub fn boundary_conditions(&self) {
         for cell in self.cells.iter() {
-            let variantclone = cell.borrow().variant.clone();
-            if let Boundary(bc_vector) = variantclone {
-                // TODO: cloning here seems like overkill
-                for (function, value) in bc_vector {
-                    function(&mut cell.borrow_mut(), value);
+            let cellref = &mut cell.borrow_mut();
+            if let Boundary(bc_vector) = &cellref.variant {
+                let mut newproperties = cellref.properties;
+                for equation::BoundaryCondition(function, value) in bc_vector {
+                    function(&mut newproperties, &cellref.faces, *value);
                 }
+                cellref.properties = newproperties;
             }
         }
     }
@@ -166,7 +164,7 @@ impl fmt::Debug for Mesh {
             .map(|rc| rc.borrow())
             .filter(|c| matches!(c.variant, CellType::Internal))
         {
-            write!(f, "{:.1} ", cell.T)?;
+            write!(f, "{:.1} ", cell.properties.T)?;
         }
         write!(f, "]")
     }
@@ -178,10 +176,10 @@ mod tests {
     use debug_cell::RefMut;
     #[test]
     fn test_generation() {
-        let bc1: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 300.);
-        let bc2: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_neumann, 0.);
-        let bc3: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 0.);
-        let bc: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6] = [
+        let bc1 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 300.);
+        let bc2 = equation::BoundaryCondition(equation::heat_diffusion_neumann, 0.);
+        let bc3 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 0.);
+        let bc: [Vec<equation::BoundaryCondition>; 6] = [
             vec![bc1],
             vec![bc2],
             vec![bc2],
@@ -207,10 +205,10 @@ mod tests {
 
     #[test]
     fn test_large_mesh() {
-        let bc1: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 300.);
-        let bc2: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_neumann, 0.);
-        let bc3: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 0.);
-        let bc: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6] = [
+        let bc1 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 300.);
+        let bc2 = equation::BoundaryCondition(equation::heat_diffusion_neumann, 0.);
+        let bc3 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 0.);
+        let bc: [Vec<equation::BoundaryCondition>; 6] = [
             vec![bc1],
             vec![bc2],
             vec![bc2],

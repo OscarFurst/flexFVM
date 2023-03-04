@@ -1,7 +1,8 @@
 use crate::cell::{self};
 use crate::cell::{Cell, Neighbor};
+use crate::equation;
 use crate::mesh;
-use debug_cell::{Ref, RefMut};
+use debug_cell::Ref;
 use nalgebra::DVector;
 use std::fmt;
 use std::rc::Rc;
@@ -30,7 +31,7 @@ impl Domain {
         nx: usize,
         ny: usize,
         nz: usize,
-        bc: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6],
+        bc: [Vec<equation::BoundaryCondition>; 6],
         eq: Vec<fn(&Ref<Cell>) -> f64>,
     ) {
         self.layers
@@ -104,7 +105,7 @@ impl Domain {
         }
     }
 
-    pub fn setup_equations(&self, _t: &f64, x: &DVector<f64>) -> DVector<f64> {
+    pub fn setup_equations(&self, _t: &f64, _x: &DVector<f64>) -> DVector<f64> {
         let mut y = vec![];
         for layer in self.layers.iter() {
             y.append(&mut layer.equations());
@@ -118,7 +119,7 @@ impl Domain {
         for layer in self.layers.iter() {
             for mut cell in layer.cells.iter().map(|c| c.borrow_mut()) {
                 if matches!(cell.variant, cell::CellType::Internal) {
-                    cell.T = y[i];
+                    cell.properties.T = y[i];
                     i += 1;
                 }
             }
@@ -148,10 +149,10 @@ mod tests {
     use debug_cell::RefMut;
     #[test]
     fn test_generation() {
-        let bc1: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 300.);
-        let bc2: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_neumann, 0.);
-        let bc3: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 0.);
-        let boundary_conditions: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6] = [
+        let bc1 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 300.);
+        let bc2 = equation::BoundaryCondition(equation::heat_diffusion_neumann, 0.);
+        let bc3 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 0.);
+        let boundary_conditions: [Vec<equation::BoundaryCondition>; 6] = [
             vec![bc1],
             vec![bc2],
             vec![bc2],

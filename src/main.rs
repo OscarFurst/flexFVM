@@ -1,13 +1,12 @@
-use debug_cell::RefMut;
-use flex_fvm::{cell::Cell, equation, solver};
+use flex_fvm::{equation, solver};
 use nalgebra::DVector;
 use std::time::Instant;
 
 fn main() {
-    let bc1: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 300.);
-    let bc2: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_neumann, 0.);
-    let bc3: (fn(&mut RefMut<Cell>, f64), f64) = (equation::heat_diffusion_dirichlet, 0.);
-    let boundary_conditions: [Vec<(fn(&mut RefMut<Cell>, f64), f64)>; 6] = [
+    let bc1 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 300.);
+    let bc2 = equation::BoundaryCondition(equation::heat_diffusion_neumann, 0.);
+    let bc3 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 0.);
+    let boundary_conditions: [Vec<equation::BoundaryCondition>; 6] = [
         vec![bc1],
         vec![bc2],
         vec![bc2],
@@ -51,7 +50,7 @@ fn main() {
         nx,
         ny,
         nz,
-        boundary_conditions.clone(),
+        boundary_conditions,
         vec![equation::heat_diffusion],
     );
 

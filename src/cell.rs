@@ -1,12 +1,14 @@
 // for now all cells are rectangular parallelepipeds
-use debug_cell::{RefCell, RefMut};
+use debug_cell::RefCell;
 use nalgebra::{Point3, Vector3};
 use std::fmt;
 use std::rc::Rc;
 
-////////////
-/// CELL ///
-////////////
+use crate::equation;
+
+///////////////////////////
+/// CELL and PROPERTIES ///
+///////////////////////////
 
 #[allow(non_snake_case)]
 pub struct Cell {
@@ -15,13 +17,19 @@ pub struct Cell {
     pub volume: f64,    // m3
     pub vertices: Vec<Point3<f64>>,
     pub variant: CellType,
+    pub properties: Properties,
+    // faces of the volume
+    pub faces: Vec<Face>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Copy)]
+pub struct Properties {
     // physical properties
     pub T: f64,      // K
     pub rho: f64,    // kg/m3
     pub cp: f64,     // J/k/kg
     pub lambda: f64, // W/m/k
-    // faces of the volume
-    pub faces: Vec<Face>,
 }
 
 impl Cell {
@@ -68,7 +76,7 @@ impl Cell {
         cell: &Cell,
         normal: &Vector3<f64>,
         face: &Face,
-        bc: Vec<(fn(&mut RefMut<Cell>, f64), f64)>,
+        bc: Vec<equation::BoundaryCondition>,
     ) -> Cell {
         // creates a new "boundary cell" from the provided internal cell
         // the boundary condition is not linked to the cell after the function, it needs to be done when linking the cells
@@ -86,7 +94,7 @@ impl Cell {
 
 impl fmt::Debug for Cell {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:.1}", self.T)
+        write!(f, "{:.1}", self.properties.T)
     }
 }
 
@@ -96,12 +104,22 @@ impl Default for Cell {
             r: Point3::new(0., 0., 0.),
             vertices: Vec::new(),
             volume: 0.,
+            properties: Properties {
+                ..Default::default()
+            },
+            variant: CellType::Internal,
+            faces: Vec::new(),
+        }
+    }
+}
+
+impl Default for Properties {
+    fn default() -> Self {
+        Properties {
             T: 0.0,
             rho: 9000.0,
             cp: 0.001,
             lambda: 300.,
-            variant: CellType::Internal,
-            faces: Vec::new(),
         }
     }
 }
@@ -165,7 +183,7 @@ impl Face {
 #[derive(Clone)]
 pub enum CellType {
     Internal,
-    Boundary(Vec<(fn(&mut RefMut<Cell>, f64), f64)>),
+    Boundary(Vec<equation::BoundaryCondition>),
     Nil,
 }
 
