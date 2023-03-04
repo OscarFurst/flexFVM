@@ -3,9 +3,9 @@ use nalgebra::DVector;
 use std::time::Instant;
 
 fn main() {
-    let bc1 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 300.);
-    let bc2 = equation::BoundaryCondition(equation::heat_diffusion_neumann, 0.);
-    let bc3 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 0.);
+    let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
+    let bc2 = equation::BoundaryCondition(equation::heat_neumann, 0.);
+    let bc3 = equation::BoundaryCondition(equation::heat_dirichlet, 0.);
     let boundary_conditions: [Vec<equation::BoundaryCondition>; 6] = [
         vec![bc1],
         vec![bc2],

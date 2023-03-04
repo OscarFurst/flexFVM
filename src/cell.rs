@@ -26,10 +26,11 @@ pub struct Cell {
 #[derive(Clone, Copy)]
 pub struct Properties {
     // physical properties
-    pub T: f64,      // K
-    pub rho: f64,    // kg/m3
-    pub cp: f64,     // J/k/kg
-    pub lambda: f64, // W/m/k
+    pub T: f64,          // K
+    pub rho: f64,        // kg/m3
+    pub cp: f64,         // J/k/kg
+    pub lambda: f64,     // W/m/k
+    pub u: Vector3<f64>, // m/s
 }
 
 impl Cell {
@@ -120,6 +121,7 @@ impl Default for Properties {
             rho: 9000.0,
             cp: 0.001,
             lambda: 300.,
+            u: Vector3::new(1., 0., 0.),
         }
     }
 }
@@ -131,7 +133,7 @@ impl Default for Properties {
 #[derive(Clone)]
 pub struct Neighbor {
     pub cell: Rc<RefCell<Cell>>,
-    pub dr: Vector3<f64>,
+    pub n: Vector3<f64>,
     pub distance: f64,
 }
 

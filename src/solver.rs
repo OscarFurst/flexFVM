@@ -17,6 +17,7 @@ impl Domain {
     }
 
     pub fn vec_size(&self) -> usize {
+        // returns the total number of equations that need to be solved in the domain
         let mut n = 0;
         for layer in self.layers.iter() {
             n += layer.n_eq();
@@ -40,6 +41,7 @@ impl Domain {
     }
 
     fn join_layers(&self) {
+        // searches 'Boundary' cells inside of the domain, eliminates them and links their corresponding internal cells together
         let mut to_pop = vec![];
         for layer in self.layers.iter() {
             for other_layer in self.layers.iter() {
@@ -76,7 +78,7 @@ impl Domain {
                                 .unwrap() // found the right face
                                 .neighbor = Some(Neighbor {
                                 cell: other_cell_ref_givaway,
-                                dr: dr,
+                                n: dr,
                                 distance: dr.norm(),
                             });
                             other_cell_ref
@@ -87,7 +89,7 @@ impl Domain {
                                 .unwrap() // found the right face
                                 .neighbor = Some(Neighbor {
                                 cell: cell_ref,
-                                dr: -dr,
+                                n: -dr,
                                 distance: dr.norm(),
                             });
                         }
@@ -149,9 +151,9 @@ mod tests {
     use debug_cell::RefMut;
     #[test]
     fn test_generation() {
-        let bc1 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 300.);
-        let bc2 = equation::BoundaryCondition(equation::heat_diffusion_neumann, 0.);
-        let bc3 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 0.);
+        let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
+        let bc2 = equation::BoundaryCondition(equation::heat_neumann, 0.);
+        let bc3 = equation::BoundaryCondition(equation::heat_dirichlet, 0.);
         let boundary_conditions: [Vec<equation::BoundaryCondition>; 6] = [
             vec![bc1],
             vec![bc2],

@@ -21,6 +21,7 @@ impl Mesh {
     }
 
     pub fn n_eq(&self) -> usize {
+        // returns the total number of equations that need to be solved for the layer
         self.cells
             .iter()
             .filter(|c| matches!(c.borrow().variant, CellType::Internal))
@@ -110,12 +111,12 @@ impl Mesh {
                         if (face.center - other_face.center).norm() < f64::EPSILON {
                             face.neighbor = Some(Neighbor {
                                 cell: Rc::clone(other_cell),
-                                dr: dr,
+                                n: dr / dr.norm(),
                                 distance: dr.norm(),
                             });
                             other_face.neighbor = Some(Neighbor {
                                 cell: Rc::clone(cell),
-                                dr: -dr,
+                                n: -dr / dr.norm(),
                                 distance: dr.norm(),
                             });
                         }
@@ -176,9 +177,9 @@ mod tests {
     use debug_cell::RefMut;
     #[test]
     fn test_generation() {
-        let bc1 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 300.);
-        let bc2 = equation::BoundaryCondition(equation::heat_diffusion_neumann, 0.);
-        let bc3 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 0.);
+        let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
+        let bc2 = equation::BoundaryCondition(equation::heat_neumann, 0.);
+        let bc3 = equation::BoundaryCondition(equation::heat_dirichlet, 0.);
         let bc: [Vec<equation::BoundaryCondition>; 6] = [
             vec![bc1],
             vec![bc2],
@@ -205,9 +206,9 @@ mod tests {
 
     #[test]
     fn test_large_mesh() {
-        let bc1 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 300.);
-        let bc2 = equation::BoundaryCondition(equation::heat_diffusion_neumann, 0.);
-        let bc3 = equation::BoundaryCondition(equation::heat_diffusion_dirichlet, 0.);
+        let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
+        let bc2 = equation::BoundaryCondition(equation::heat_neumann, 0.);
+        let bc3 = equation::BoundaryCondition(equation::heat_dirichlet, 0.);
         let bc: [Vec<equation::BoundaryCondition>; 6] = [
             vec![bc1],
             vec![bc2],
