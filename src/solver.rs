@@ -13,15 +13,11 @@ pub fn solve(initial_mesh: &mesh::Mesh, t_end: f64, h0: f64) -> mesh::Mesh {
         mesh.update(&x);
         let y = mesh.setup_equations(&t, &x);
         x += h0 * &y;
-        if y.abs().max() < 0.0000001 {
-            println!("Steady state reached at t = {} s", t);
+        if stop_criterial(&y, t) {
             break;
-        }
+        };
         t += h0;
         it += 1;
-        if y.iter().any(|x| x.is_nan()) {
-            break;
-        }
     }
     let duration = start.elapsed();
     println!(
@@ -30,4 +26,15 @@ pub fn solve(initial_mesh: &mesh::Mesh, t_end: f64, h0: f64) -> mesh::Mesh {
         it
     );
     mesh
+}
+
+fn stop_criterial(y: &DVector<f64>, t: f64) -> bool {
+    if y.iter().any(|x| x.is_nan()) {
+        println!("NaN found in solution vector");
+        return true;
+    } else if y.abs().max() < 0.0000001 {
+        println!("Steady state reached at t = {} s", t);
+        return true;
+    }
+    false
 }
