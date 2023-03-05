@@ -32,10 +32,21 @@ impl Mesh {
         (nx, ny, nz): (usize, usize, usize),
         bc: [Vec<equation::BoundaryCondition>; 6],
         equations: Vec<fn(&Ref<Cell>) -> f64>,
-        material: Properties,
+        internal_props: Properties,
+        boundary_props: Properties,
     ) {
-        self.layers
-            .push(layer::Layer::generate(r1, r2, (nx, ny, nz), bc, equations, material).link());
+        self.layers.push(
+            layer::Layer::generate(
+                r1,
+                r2,
+                (nx, ny, nz),
+                bc,
+                equations,
+                internal_props,
+                boundary_props,
+            )
+            .link(),
+        );
         self.join_layers();
     }
 
@@ -146,7 +157,7 @@ impl Default for Mesh {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cell::Cell, equation, materials, mesh};
+    use crate::{equation, materials, mesh};
     #[test]
     fn test_generation() {
         let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
@@ -169,6 +180,7 @@ mod tests {
             (nx, ny, nz),
             boundary_conditions,
             vec![equation::heat_diffusion],
+            materials::copper(),
             materials::copper(),
         );
     }

@@ -37,7 +37,8 @@ impl Layer {
         (nx, ny, nz): (usize, usize, usize),
         bc: [Vec<equation::BoundaryCondition>; 6],
         equations: Vec<fn(&Ref<Cell>) -> f64>,
-        material: Properties,
+        internal_props: Properties,
+        boundary_props: Properties,
     ) -> Layer {
         // generates a regular grid of rectangular cells
         // TODO: I could not think of an elegant way to pass boundary conditions
@@ -65,7 +66,7 @@ impl Layer {
                 for k in 0..nz {
                     let mut cell = Cell {
                         variant: CellType::Internal,
-                        properties: material,
+                        properties: internal_props,
                         ..Default::default()
                     };
                     cell.create_rectangle(
@@ -80,7 +81,7 @@ impl Layer {
                             // search for corresponding boundary condition
                             let mut boundary_cell =
                                 Cell::boundary_from_cell(&cell, normal, face, bc.clone());
-                            boundary_cell.properties = material;
+                            boundary_cell.properties = boundary_props;
                             mesh.cells.push(Rc::new(RefCell::new(boundary_cell)));
                         }
                     }
@@ -179,8 +180,7 @@ impl fmt::Debug for Layer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cell::Cell, equation, layer::Layer, materials};
-    use debug_cell::RefMut;
+    use crate::{equation, layer::Layer, materials};
     #[test]
     fn test_generation() {
         let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
@@ -201,6 +201,7 @@ mod tests {
             (nx, ny, nz),
             bc,
             vec![equation::heat_diffusion],
+            materials::copper(),
             materials::copper(),
         );
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
@@ -229,6 +230,7 @@ mod tests {
             (nx, ny, nz),
             bc,
             vec![equation::heat_diffusion],
+            materials::copper(),
             materials::copper(),
         )
         .link();

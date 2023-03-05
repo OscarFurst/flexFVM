@@ -1,4 +1,5 @@
 use crate::{equation::*, materials, mesh};
+use nalgebra::Vector3;
 
 pub fn water_channel_example() -> mesh::Mesh {
     let bc1 = BoundaryCondition(heat_dirichlet, 300.);
@@ -12,17 +13,18 @@ pub fn water_channel_example() -> mesh::Mesh {
         vec![bc2],
         vec![bc2],
     ];
-    let (nx, ny, nz) = (9, 1, 1);
-    let n_grid = (nx, ny, nz);
-    let mut block: mesh::Mesh;
-    block = mesh::Mesh::new();
+    let mut water = materials::water();
+    water.u = Vector3::new(1., 0., 0.);
+    let n_grid = (9, 1, 1);
+    let mut block = mesh::Mesh::new();
     block.add_layer(
         (0., 0., 0.),
         (5., 1., 1.),
         n_grid,
         boundary_conditions.clone(),
         vec![heat_convection_diffusion],
-        materials::air(),
+        water,
+        water,
     );
     block
 }
@@ -39,16 +41,15 @@ pub fn copper_example() -> mesh::Mesh {
         vec![bc2],
         vec![bc2],
     ];
-    let (nx, ny, nz) = (50, 1, 20);
-    let n_grid = (nx, ny, nz);
-    let mut block: mesh::Mesh;
-    block = mesh::Mesh::new();
+    let n_grid = (50, 1, 20);
+    let mut block = mesh::Mesh::new();
     block.add_layer(
         (0., 0., 0.),
         (0.5, 1., 0.5),
         n_grid,
         boundary_conditions.clone(),
         vec![heat_diffusion],
+        materials::copper(),
         materials::copper(),
     );
     block.add_layer(
@@ -58,6 +59,7 @@ pub fn copper_example() -> mesh::Mesh {
         boundary_conditions.clone(),
         vec![heat_diffusion],
         materials::copper(),
+        materials::copper(),
     );
     block.add_layer(
         (0., 0., 0.5),
@@ -66,6 +68,7 @@ pub fn copper_example() -> mesh::Mesh {
         boundary_conditions.clone(),
         vec![heat_diffusion],
         materials::copper(),
+        materials::copper(),
     );
     block.add_layer(
         (0.5, 0., 0.5),
@@ -73,6 +76,7 @@ pub fn copper_example() -> mesh::Mesh {
         n_grid,
         boundary_conditions,
         vec![heat_diffusion],
+        materials::copper(),
         materials::copper(),
     );
     block
