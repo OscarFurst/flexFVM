@@ -1,185 +1,33 @@
-use crate::cell::{self, Neighbor};
-use crate::cell::{BoundaryCondition::*, CellType::*};
 use crate::mesh;
 use nalgebra::DVector;
-use std::fmt;
-use std::rc::Rc;
+use std::time::Instant;
 
-pub struct Domain {
-    layers: Vec<mesh::Mesh>,
-}
+pub fn solve(initial_mesh: &mesh::Mesh, t_end: f64, h0: f64) -> mesh::Mesh {
+    let mut mesh = initial_mesh.clone();
+    let mut t = 0.;
+    let mut it = 0;
 
-impl Domain {
-    pub fn new() -> Self {
-        Domain { layers: Vec::new() }
-    }
-
-    pub fn add_layer(
-        &mut self,
-        r1: (f64, f64, f64),
-        r2: (f64, f64, f64),
-        nx: usize,
-        ny: usize,
-        nz: usize,
-        bc: &[cell::BoundaryCondition; 6],
-    ) {
-        self.layers
-            .push(mesh::Mesh::generate(r1, r2, nx, ny, nz, bc).link());
-        self.join_layers();
-    }
-
-    fn join_layers(&self) {
-        let mut to_pop = vec![];
-        for layer in self.layers.iter() {
-            for other_layer in self.layers.iter() {
-                if std::ptr::eq(layer, other_layer) {
-                    continue;
-                }
-                for cell in layer.cells.iter() {
-                    if matches!(cell.borrow().variant, cell::CellType::Internal) {
-                        continue;
-                    }
-                    for other_cell in other_layer.cells.iter() {
-                        if matches!(other_cell.borrow().variant, cell::CellType::Internal) {
-                            continue;
-                        }
-                        let r = cell.borrow().faces[0].center;
-                        if (r - other_cell.borrow().faces[0].center).norm() < f64::EPSILON {
-                            // we found a pair
-                            // make copies of the cells they are pointing to
-                            let cell_ref =
-                                Rc::clone(&cell.borrow().faces[0].neighbor.as_ref().unwrap().cell);
-                            let other_cell_ref = Rc::clone(
-                                &other_cell.borrow().faces[0].neighbor.as_ref().unwrap().cell,
-                            );
-                            let other_cell_ref_givaway = Rc::clone(
-                                &other_cell.borrow().faces[0].neighbor.as_ref().unwrap().cell,
-                            );
-                            let dr = other_cell_ref.borrow().r - cell_ref.borrow().r;
-
-                            cell_ref
-                                .borrow_mut()
-                                .faces
-                                .iter_mut()
-                                .find(|f| (r - f.center).norm() < f64::EPSILON)
-                                .unwrap() // found the right face
-                                .neighbor = Some(Neighbor {
-                                cell: other_cell_ref_givaway,
-                                dr: dr,
-                                distance: dr.norm(),
-                            });
-                            other_cell_ref
-                                .borrow_mut()
-                                .faces
-                                .iter_mut()
-                                .find(|f| (r - f.center).norm() < f64::EPSILON)
-                                .unwrap() // found the right face
-                                .neighbor = Some(Neighbor {
-                                cell: cell_ref,
-                                dr: -dr,
-                                distance: dr.norm(),
-                            });
-                        }
-                        to_pop.push(Rc::clone(cell));
-                        to_pop.push(Rc::clone(other_cell));
-                    }
-                }
-            }
+    let mut x = DVector::from_element(mesh.vec_size(), 0.);
+    let start = Instant::now();
+    while t < t_end {
+        mesh.update(&x);
+        let y = mesh.setup_equations(&t, &x);
+        x += h0 * &y;
+        if y.abs().max() < 0.0000001 {
+            println!("Steady state reached at t = {} s", t);
+            break;
+        }
+        t += h0;
+        it += 1;
+        if y.iter().any(|x| x.is_nan()) {
+            break;
         }
     }
-
-    pub fn enforce_boundary_conditions(&mut self) {
-        for layer in self.layers.iter() {
-            for cell in layer.cells.iter() {
-                let bc = cell.borrow().variant.clone();
-                if let Boundary(Dirichlet(val)) = bc {
-                    cell.borrow_mut().T = val;
-                } else if let Boundary(Neumann(val)) = bc {
-                    if cell.borrow().faces.len() != 1 {
-                        panic!("boundary cells should only have a single neighbor");
-                    }
-                    let boundary_value = cell.borrow().faces[0]
-                        .neighbor
-                        .as_ref()
-                        .unwrap()
-                        .cell
-                        .borrow()
-                        .T; // gotta check if there is more than one face
-                    cell.borrow_mut().T = boundary_value;
-                }
-            }
-        }
-    }
-
-    pub fn setup_equations(&self, _t: &f64, x: &DVector<f64>) -> DVector<f64> {
-        let mut y = DVector::from_element(x.len(), 0.);
-        let mut i = 0;
-        for layer in self.layers.iter() {
-            for p in layer
-                .cells
-                .iter()
-                .map(|c| c.borrow())
-                .filter(|c| matches!(c.variant, Internal))
-            {
-                let mut flux = 0.;
-                for f in p.faces.iter() {
-                    let n = f.neighbor.as_ref().unwrap().cell.borrow();
-                    flux -= p.lambda * (p.T - n.T) / f.neighbor.as_ref().unwrap().distance * f.area;
-                }
-                y[i] = flux / p.volume / p.rho / p.cp;
-                i += 1;
-            }
-        }
-        y
-    }
-
-    pub fn update(&mut self, y: &DVector<f64>) {
-        // takes the solution and updates every cell with it
-        let mut i = 0;
-        for layer in self.layers.iter() {
-            for mut cell in layer.cells.iter().map(|c| c.borrow_mut()) {
-                if matches!(cell.variant, Internal) {
-                    cell.T = y[i];
-                    i += 1;
-                }
-            }
-        }
-        self.enforce_boundary_conditions();
-    }
-}
-
-impl fmt::Debug for Domain {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for layer in self.layers.iter() {
-            write!(f, "{:?}", layer)?
-        }
-        write!(f, " ")
-    }
-}
-
-impl Default for Domain {
-    fn default() -> Self {
-        Domain::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::cell::BoundaryCondition;
-    use crate::solver;
-    #[test]
-    fn test_generation() {
-        let boundary_conditions = [
-            BoundaryCondition::Dirichlet(300.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Dirichlet(0.),
-            BoundaryCondition::Neumann(0.),
-            BoundaryCondition::Neumann(0.),
-        ];
-        let (nx, ny, nz) = (3, 1, 1);
-        let mut block: solver::Domain;
-        block = solver::Domain::new();
-        block.add_layer((0., 0., 0.), (1., 1., 1.), nx, ny, nz, &boundary_conditions);
-    }
+    let duration = start.elapsed();
+    println!(
+        "Elapsed time : {} ms. Iterations : {}",
+        duration.as_millis(),
+        it
+    );
+    mesh
 }

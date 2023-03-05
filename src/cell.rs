@@ -4,25 +4,42 @@ use nalgebra::{Point3, Vector3};
 use std::fmt;
 use std::rc::Rc;
 
-////////////
-/// CELL ///
-////////////
+use crate::equation;
+
+///////////////////////////
+/// CELL and PROPERTIES ///
+///////////////////////////
 
 #[allow(non_snake_case)]
-#[derive(Clone)]
 pub struct Cell {
     // geometric properties
     pub r: Point3<f64>, // m
     pub volume: f64,    // m3
     pub vertices: Vec<Point3<f64>>,
     pub variant: CellType,
-    // physical properties
-    pub T: f64,      // K
-    pub rho: f64,    // kg/m3
-    pub cp: f64,     // J/k/kg
-    pub lambda: f64, // W/m/k
+    pub properties: Properties,
     // faces of the volume
     pub faces: Vec<Face>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Default, Clone, Copy)]
+pub struct Properties {
+    // physical properties
+    pub T: f64,   // K
+    pub rho: f64, // kg/m3
+    pub cp: f64,  // J/k/kg
+    // solid
+    pub lambda: f64, // W/m/k
+    // fluid
+    pub u: Vector3<f64>, // m/s
+    pub D: f64,          // J/k/kg
+}
+
+impl Properties {
+    pub fn h(&self) -> f64 {
+        self.T * self.cp * self.rho
+    }
 }
 
 impl Cell {
@@ -69,7 +86,7 @@ impl Cell {
         cell: &Cell,
         normal: &Vector3<f64>,
         face: &Face,
-        bc: BoundaryCondition,
+        bc: Vec<equation::BoundaryCondition>,
     ) -> Cell {
         // creates a new "boundary cell" from the provided internal cell
         // the boundary condition is not linked to the cell after the function, it needs to be done when linking the cells
@@ -87,7 +104,7 @@ impl Cell {
 
 impl fmt::Debug for Cell {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:.1}", self.T)
+        write!(f, "{:.1}", self.properties.T)
     }
 }
 
@@ -97,10 +114,9 @@ impl Default for Cell {
             r: Point3::new(0., 0., 0.),
             vertices: Vec::new(),
             volume: 0.,
-            T: 0.0,
-            rho: 9000.0,
-            cp: 0.001,
-            lambda: 300.,
+            properties: Properties {
+                ..Default::default()
+            },
             variant: CellType::Internal,
             faces: Vec::new(),
         }
@@ -114,7 +130,7 @@ impl Default for Cell {
 #[derive(Clone)]
 pub struct Neighbor {
     pub cell: Rc<RefCell<Cell>>,
-    pub dr: Vector3<f64>,
+    pub n: Vector3<f64>,
     pub distance: f64,
 }
 
@@ -163,16 +179,19 @@ impl Face {
 //////////////////////////////////////
 /// CELLTYPE and BOUNDARYCONDITION ///
 //////////////////////////////////////
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum CellType {
     Internal,
-    Boundary(BoundaryCondition),
+    Boundary(Vec<equation::BoundaryCondition>),
     Nil,
 }
 
-#[derive(Clone, Debug)]
-pub enum BoundaryCondition {
-    Dirichlet(f64),
-    Neumann(f64),
+impl fmt::Debug for CellType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CellType::Internal => write!(f, "Internal"),
+            CellType::Boundary(_) => write!(f, "Boundary"),
+            CellType::Nil => write!(f, "Nil"),
+        }
+    }
 }
