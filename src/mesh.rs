@@ -77,8 +77,9 @@ impl Mesh {
                     for (point, normal, bc) in &boundaries {
                         if let Some(face) = cell.face_on_plane(point, normal) {
                             // search for corresponding boundary condition
-                            let boundary_cell =
+                            let mut boundary_cell =
                                 Cell::boundary_from_cell(&cell, normal, face, bc.clone());
+                            boundary_cell.properties = material;
                             mesh.cells.push(Rc::new(RefCell::new(boundary_cell)));
                         }
                     }
@@ -108,7 +109,11 @@ impl Mesh {
                 {
                     for other_face in other_cell.borrow_mut().faces.iter_mut() {
                         // pair up faces that matched
-                        if (face.center - other_face.center).norm() < f64::EPSILON {
+                        if face.center.coords.relative_eq(
+                            &other_face.center.coords,
+                            f64::EPSILON,
+                            f64::EPSILON,
+                        ) {
                             face.neighbor = Some(Neighbor {
                                 cell: Rc::clone(other_cell),
                                 n: dr / dr.norm(),
@@ -216,15 +221,16 @@ mod tests {
             vec![bc2],
             vec![bc2],
         ];
-        let (nx, ny, nz) = (100, 1, 1);
+        let (nx, ny, nz) = (9, 1, 1);
         let layer = Mesh::generate(
             (0., 0., 0.),
-            (1., 1., 1.),
+            (5., 1., 1.),
             (nx, ny, nz),
             bc,
             vec![equation::heat_diffusion],
             materials::copper(),
-        );
+        )
+        .link();
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
         }
@@ -233,5 +239,20 @@ mod tests {
             layer.cells.len(),
             (nx + 2) * (ny + 2) * (nz + 2) - 4 * nx - 4 * ny - 4 * nz - 8
         );
+        for cell in layer.cells.iter() {
+            for face in &cell.borrow().faces {
+                match face.neighbor {
+                    None => {
+                        println!(
+                            "unbound face, coord : {:?} ; type : {:?}, face center : {:?}",
+                            cell.borrow().r,
+                            cell.borrow().variant,
+                            face.center
+                        )
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 }

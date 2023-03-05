@@ -16,10 +16,10 @@ pub fn heat_convection_diffusion(p: &Ref<cell::Cell>) -> f64 {
         diffusive_flux -= p.properties.D * (p.properties.T - n.properties.T)
             / f.neighbor.as_ref().unwrap().distance
             * f.area;
-        convective_flux -= ((p.properties.T + n.properties.T) * (p.properties.u + n.properties.u)
-            / 4.)
-            .dot(&f.neighbor.as_ref().unwrap().n)
-            * f.area;
+        convective_flux -=
+            ((p.properties.h() + n.properties.h()) * (p.properties.u + n.properties.u) / 4.)
+                .dot(&f.neighbor.as_ref().unwrap().n)
+                * f.area;
     }
     (diffusive_flux + convective_flux) / p.volume / p.properties.rho / p.properties.cp
 }

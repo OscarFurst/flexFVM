@@ -36,6 +36,12 @@ pub struct Properties {
     pub D: f64,          // J/k/kg
 }
 
+impl Properties {
+    pub fn h(&self) -> f64 {
+        self.T * self.cp * self.rho
+    }
+}
+
 impl Cell {
     pub fn create_rectangle(
         &mut self,
@@ -182,6 +188,10 @@ pub enum CellType {
 
 impl fmt::Debug for CellType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TODO")
+        match self {
+            CellType::Internal => write!(f, "Internal"),
+            CellType::Boundary(_) => write!(f, "Boundary"),
+            CellType::Nil => write!(f, "Nil"),
+        }
     }
 }
