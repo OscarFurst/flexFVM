@@ -6,6 +6,7 @@ use debug_cell::{Ref, RefCell};
 use nalgebra::{DVector, Point3, Vector3};
 use std::{fmt, rc::Rc};
 
+#[derive(Clone)]
 pub struct Layer {
     pub cells: Vec<Rc<RefCell<Cell>>>,
     pub boundaries: [(Point3<f64>, Vector3<f64>, Vec<equation::BoundaryCondition>); 6],

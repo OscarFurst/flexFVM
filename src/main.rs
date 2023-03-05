@@ -1,6 +1,5 @@
+use flex_fvm::solver;
 use flex_fvm::{equation, materials::copper, mesh};
-use nalgebra::DVector;
-use std::time::Instant;
 
 fn main() {
     let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
@@ -51,33 +50,6 @@ fn main() {
         copper(),
     );
 
-    let t_end: f64 = 0.001;
-    let mut t = 0.;
-    let mut it = 0;
-    let h: f64 = 0.000001;
-    let mut x = DVector::from_element(block.vec_size(), 0.);
-    let start = Instant::now();
-    while t < t_end {
-        //println!("Time = {} s", t);
-        block.update(&x);
-        let y = block.setup_equations(&t, &x);
-        x += h * &y;
-        if y.abs().max() < 0.0000001 {
-            println!("Steady state reached at t = {} s", t);
-            break;
-        }
-        t += h;
-        it += 1;
-        // println!("{:?}", y);
-        if y.iter().any(|x| x.is_nan()) {
-            break;
-        }
-    }
-    let duration = start.elapsed();
-    println!(
-        "Elapsed time : {} ms. Iterations : {}",
-        duration.as_millis(),
-        it
-    );
-    println!("{:?}", block)
+    let solution = crate::solver::solve(&block, 0.001, 0.000001);
+    println!("{:?}", solution)
 }

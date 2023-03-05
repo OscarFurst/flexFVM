@@ -6,6 +6,7 @@ use nalgebra::DVector;
 use std::fmt;
 use std::rc::Rc;
 
+#[derive(Clone)]
 pub struct Mesh {
     layers: Vec<layer::Layer>,
 }
