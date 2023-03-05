@@ -17,3 +17,6 @@ for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too l
 
 With new equation system :
 for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 843 ms, 838 ms, 977 ms (release)
+
+Optimizing new equation system ('Properties' to use references instead of clones) :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 298 ms, 317 ms, 306 ms (release)
