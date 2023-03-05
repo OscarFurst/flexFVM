@@ -1,4 +1,4 @@
-use flex_fvm::{equation, materials::copper, solver};
+use flex_fvm::{equation, materials::copper, mesh};
 use nalgebra::DVector;
 use std::time::Instant;
 
@@ -16,8 +16,8 @@ fn main() {
     ];
     let (nx, ny, nz) = (50, 1, 20);
     let n_grid = (nx, ny, nz);
-    let mut block: solver::Domain;
-    block = solver::Domain::new();
+    let mut block: mesh::Mesh;
+    block = mesh::Mesh::new();
     block.add_layer(
         (0., 0., 0.),
         (0.5, 1., 0.5),
