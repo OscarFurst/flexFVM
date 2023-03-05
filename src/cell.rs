@@ -23,14 +23,17 @@ pub struct Cell {
 }
 
 #[allow(non_snake_case)]
-#[derive(Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub struct Properties {
     // physical properties
-    pub T: f64,          // K
-    pub rho: f64,        // kg/m3
-    pub cp: f64,         // J/k/kg
-    pub lambda: f64,     // W/m/k
+    pub T: f64,   // K
+    pub rho: f64, // kg/m3
+    pub cp: f64,  // J/k/kg
+    // solid
+    pub lambda: f64, // W/m/k
+    // fluid
     pub u: Vector3<f64>, // m/s
+    pub D: f64,          // J/k/kg
 }
 
 impl Cell {
@@ -110,18 +113,6 @@ impl Default for Cell {
             },
             variant: CellType::Internal,
             faces: Vec::new(),
-        }
-    }
-}
-
-impl Default for Properties {
-    fn default() -> Self {
-        Properties {
-            T: 0.0,
-            rho: 9000.0,
-            cp: 0.001,
-            lambda: 300.,
-            u: Vector3::new(1., 0., 0.),
         }
     }
 }

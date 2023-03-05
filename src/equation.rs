@@ -13,7 +13,7 @@ pub fn heat_convection_diffusion(p: &Ref<cell::Cell>) -> f64 {
     let mut convective_flux = 0.;
     for f in p.faces.iter() {
         let n = f.neighbor.as_ref().unwrap().cell.borrow();
-        diffusive_flux -= p.properties.lambda * (p.properties.T - n.properties.T)
+        diffusive_flux -= p.properties.D * (p.properties.T - n.properties.T)
             / f.neighbor.as_ref().unwrap().distance
             * f.area;
         convective_flux -= ((p.properties.T + n.properties.T) * (p.properties.u + n.properties.u)

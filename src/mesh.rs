@@ -33,11 +33,10 @@ impl Mesh {
     pub fn generate(
         r1: (f64, f64, f64),
         r2: (f64, f64, f64),
-        nx: usize,
-        ny: usize,
-        nz: usize,
+        (nx, ny, nz): (usize, usize, usize),
         bc: [Vec<equation::BoundaryCondition>; 6],
         equations: Vec<fn(&Ref<Cell>) -> f64>,
+        material: Properties,
     ) -> Mesh {
         // generates a regular grid of rectangular cells
         // TODO: I could not think of an elegant way to pass boundary conditions
@@ -65,6 +64,7 @@ impl Mesh {
                 for k in 0..nz {
                     let mut cell = Cell {
                         variant: CellType::Internal,
+                        properties: material,
                         ..Default::default()
                     };
                     cell.create_rectangle(
@@ -173,7 +173,7 @@ impl fmt::Debug for Mesh {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cell::Cell, equation, mesh::Mesh};
+    use crate::{cell::Cell, equation, materials, mesh::Mesh};
     use debug_cell::RefMut;
     #[test]
     fn test_generation() {
@@ -192,11 +192,10 @@ mod tests {
         let layer = Mesh::generate(
             (0., 0., 0.),
             (1., 1., 1.),
-            nx,
-            ny,
-            nz,
+            (nx, ny, nz),
             bc,
             vec![equation::heat_diffusion],
+            materials::copper(),
         );
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);
@@ -221,11 +220,10 @@ mod tests {
         let layer = Mesh::generate(
             (0., 0., 0.),
             (1., 1., 1.),
-            nx,
-            ny,
-            nz,
+            (nx, ny, nz),
             bc,
             vec![equation::heat_diffusion],
+            materials::copper(),
         );
         for cell in layer.cells.iter().map(|rc| rc.borrow()) {
             println!("coord : {:?} ; type : {:?}", cell.r, cell.variant);

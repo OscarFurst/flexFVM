@@ -1,5 +1,4 @@
-use crate::cell::{self};
-use crate::cell::{Cell, Neighbor};
+use crate::cell::{self, Cell, Neighbor, Properties};
 use crate::equation;
 use crate::mesh;
 use debug_cell::Ref;
@@ -29,14 +28,13 @@ impl Domain {
         &mut self,
         r1: (f64, f64, f64),
         r2: (f64, f64, f64),
-        nx: usize,
-        ny: usize,
-        nz: usize,
+        (nx, ny, nz): (usize, usize, usize),
         bc: [Vec<equation::BoundaryCondition>; 6],
-        eq: Vec<fn(&Ref<Cell>) -> f64>,
+        equations: Vec<fn(&Ref<Cell>) -> f64>,
+        material: Properties,
     ) {
         self.layers
-            .push(mesh::Mesh::generate(r1, r2, nx, ny, nz, bc, eq).link());
+            .push(mesh::Mesh::generate(r1, r2, (nx, ny, nz), bc, equations, material).link());
         self.join_layers();
     }
 
@@ -147,8 +145,7 @@ impl Default for Domain {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cell::Cell, equation, solver};
-    use debug_cell::RefMut;
+    use crate::{cell::Cell, equation, materials, solver};
     #[test]
     fn test_generation() {
         let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
@@ -168,11 +165,10 @@ mod tests {
         block.add_layer(
             (0., 0., 0.),
             (1., 1., 1.),
-            nx,
-            ny,
-            nz,
+            (nx, ny, nz),
             boundary_conditions,
             vec![equation::heat_diffusion],
+            materials::copper(),
         );
     }
 }
