@@ -107,7 +107,7 @@ impl Layer {
                     .borrow_mut()
                     .faces
                     .iter_mut()
-                    .filter(|f| matches!(f.neighbor, None))
+                    .filter(|f| matches!(f.neighbour, None))
                 {
                     for other_face in other_cell.borrow_mut().faces.iter_mut() {
                         // pair up faces that matched
@@ -116,16 +116,13 @@ impl Layer {
                             f64::EPSILON,
                             f64::EPSILON,
                         ) {
-                            face.neighbor = Some(Neighbor {
-                                cell: Rc::clone(other_cell),
-                                n: dr / dr.norm(),
-                                distance: dr.norm(),
-                            });
-                            other_face.neighbor = Some(Neighbor {
-                                cell: Rc::clone(cell),
-                                n: -dr / dr.norm(),
-                                distance: dr.norm(),
-                            });
+                            face.neighbour = Some(Rc::clone(other_cell));
+                            face.n = dr / dr.norm();
+                            face.distance = dr.norm();
+
+                            other_face.neighbour = Some(Rc::clone(cell));
+                            other_face.n = -dr / dr.norm();
+                            other_face.distance = dr.norm();
                         }
                     }
                 }
@@ -244,7 +241,7 @@ mod tests {
         );
         for cell in layer.cells.iter() {
             for face in &cell.borrow().faces {
-                match face.neighbor {
+                match face.neighbour {
                     None => {
                         println!(
                             "unbound face, coord : {:?} ; type : {:?}, face center : {:?}",

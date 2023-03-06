@@ -1,5 +1,5 @@
 // for now all cells are rectangular parallelepipeds
-use debug_cell::RefCell;
+use debug_cell::{Ref, RefCell};
 use nalgebra::{Point3, Vector3};
 use std::fmt;
 use std::rc::Rc;
@@ -123,23 +123,18 @@ impl Default for Cell {
     }
 }
 
-/////////////////////////
-/// NEIGHBOR and FACE ///
-/// /////////////////////
-
-#[derive(Clone)]
-pub struct Neighbor {
-    pub cell: Rc<RefCell<Cell>>,
-    pub n: Vector3<f64>,
-    pub distance: f64,
-}
+////////////
+/// FACE ///
+////////////
 
 #[derive(Clone)]
 pub struct Face {
     pub vertices: Vec<Point3<f64>>,
     pub center: Point3<f64>,
     pub area: f64,
-    pub neighbor: Option<Neighbor>,
+    pub neighbour: Option<Rc<RefCell<Cell>>>,
+    pub n: Vector3<f64>,
+    pub distance: f64,
 }
 
 impl Face {
@@ -160,7 +155,9 @@ impl Face {
                 }
                 area
             },
-            neighbor: None,
+            neighbour: None,
+            n: Vector3::zeros(),
+            distance: 0.,
         }
     }
 
@@ -173,6 +170,10 @@ impl Face {
             .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(index, _)| index);
         self.vertices[index_of_min.unwrap()]
+    }
+
+    pub fn neighbour(&self) -> Ref<Cell> {
+        self.neighbour.as_ref().unwrap().borrow()
     }
 }
 

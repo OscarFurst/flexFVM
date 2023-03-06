@@ -1,4 +1,4 @@
-use crate::cell::{self, Neighbor, Properties};
+use crate::cell::{self, Properties};
 use crate::equation;
 use crate::layer;
 use nalgebra::DVector;
@@ -70,37 +70,38 @@ impl Mesh {
                             // we found a pair
                             // make copies of the cells they are pointing to
                             let cell_ref =
-                                Rc::clone(&cell.borrow().faces[0].neighbor.as_ref().unwrap().cell);
+                                Rc::clone(&cell.borrow().faces[0].neighbour.as_ref().unwrap());
                             let other_cell_ref = Rc::clone(
-                                &other_cell.borrow().faces[0].neighbor.as_ref().unwrap().cell,
+                                &other_cell.borrow().faces[0].neighbour.as_ref().unwrap(),
                             );
                             let other_cell_ref_givaway = Rc::clone(
-                                &other_cell.borrow().faces[0].neighbor.as_ref().unwrap().cell,
+                                &other_cell.borrow().faces[0].neighbour.as_ref().unwrap(),
                             );
                             let dr = other_cell_ref.borrow().r - cell_ref.borrow().r;
-
-                            cell_ref
-                                .borrow_mut()
-                                .faces
-                                .iter_mut()
-                                .find(|f| (r - f.center).norm() < f64::EPSILON)
-                                .unwrap() // found the right face
-                                .neighbor = Some(Neighbor {
-                                cell: other_cell_ref_givaway,
-                                n: dr,
-                                distance: dr.norm(),
-                            });
-                            other_cell_ref
-                                .borrow_mut()
-                                .faces
-                                .iter_mut()
-                                .find(|f| (r - f.center).norm() < f64::EPSILON)
-                                .unwrap() // found the right face
-                                .neighbor = Some(Neighbor {
-                                cell: cell_ref,
-                                n: -dr,
-                                distance: dr.norm(),
-                            });
+                            {
+                                // limits lifetime of borrowed_cell
+                                let mut borrowed_cell = cell_ref.borrow_mut();
+                                let cell_face = borrowed_cell
+                                    .faces
+                                    .iter_mut()
+                                    .find(|f| (r - f.center).norm() < f64::EPSILON)
+                                    .unwrap(); // found the right face
+                                cell_face.neighbour = Some(other_cell_ref_givaway);
+                                cell_face.n = dr / dr.norm();
+                                cell_face.distance = dr.norm();
+                            }
+                            {
+                                // limits lifetime of other_borrowed_cell
+                                let mut other_borrowed_cell = other_cell_ref.borrow_mut();
+                                let other_cell_face = other_borrowed_cell
+                                    .faces
+                                    .iter_mut()
+                                    .find(|f| (r - f.center).norm() < f64::EPSILON)
+                                    .unwrap(); // found the right face
+                                other_cell_face.neighbour = Some(cell_ref);
+                                other_cell_face.n = -dr / dr.norm();
+                                other_cell_face.distance = dr.norm();
+                            }
                         }
                         to_pop.push(Rc::clone(cell));
                         to_pop.push(Rc::clone(other_cell));
