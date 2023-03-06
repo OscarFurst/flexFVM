@@ -1,7 +1,6 @@
-use crate::cell::{self, Cell, Neighbor, Properties};
+use crate::cell::{self, Neighbor, Properties};
 use crate::equation;
 use crate::layer;
-use debug_cell::Ref;
 use nalgebra::DVector;
 use std::fmt;
 use std::rc::Rc;
@@ -31,7 +30,7 @@ impl Mesh {
         r2: (f64, f64, f64),
         (nx, ny, nz): (usize, usize, usize),
         bc: [Vec<equation::BoundaryCondition>; 6],
-        equations: Vec<fn(&Ref<Cell>) -> f64>,
+        equations: Vec<equation::Equation>,
         internal_props: Properties,
         boundary_props: Properties,
     ) {
@@ -179,7 +178,10 @@ mod tests {
             (1., 1., 1.),
             (nx, ny, nz),
             boundary_conditions,
-            vec![equation::heat_diffusion],
+            vec![equation::Equation(
+                equation::update_T,
+                equation::heat_diffusion,
+            )],
             materials::copper(),
             materials::copper(),
         );

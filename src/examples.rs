@@ -22,7 +22,7 @@ pub fn water_channel_example() -> mesh::Mesh {
         (5., 1., 1.),
         n_grid,
         boundary_conditions.clone(),
-        vec![heat_convection_diffusion],
+        vec![Equation(update_T, heat_convection_diffusion)],
         water,
         water,
     );
@@ -48,7 +48,7 @@ pub fn copper_example() -> mesh::Mesh {
         (0.5, 1., 0.5),
         n_grid,
         boundary_conditions.clone(),
-        vec![heat_diffusion],
+        vec![Equation(update_T, heat_diffusion)],
         materials::copper(),
         materials::copper(),
     );
@@ -57,7 +57,7 @@ pub fn copper_example() -> mesh::Mesh {
         (1., 1., 0.5),
         n_grid,
         boundary_conditions.clone(),
-        vec![heat_diffusion],
+        vec![Equation(update_T, heat_diffusion)],
         materials::copper(),
         materials::copper(),
     );
@@ -66,7 +66,7 @@ pub fn copper_example() -> mesh::Mesh {
         (0.5, 1., 1.),
         n_grid,
         boundary_conditions.clone(),
-        vec![heat_diffusion],
+        vec![Equation(update_T, heat_diffusion)],
         materials::copper(),
         materials::copper(),
     );
@@ -75,7 +75,7 @@ pub fn copper_example() -> mesh::Mesh {
         (1., 1., 1.),
         n_grid,
         boundary_conditions,
-        vec![heat_diffusion],
+        vec![Equation(update_T, heat_diffusion)],
         materials::copper(),
         materials::copper(),
     );

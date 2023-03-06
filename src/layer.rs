@@ -1,16 +1,16 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
 use crate::cell::CellType::*;
 use crate::cell::*;
-use crate::equation;
-use debug_cell::{Ref, RefCell};
+use crate::equation::{BoundaryCondition, Equation};
+use debug_cell::RefCell;
 use nalgebra::{DVector, Point3, Vector3};
 use std::{fmt, rc::Rc};
 
 #[derive(Clone)]
 pub struct Layer {
     pub cells: Vec<Rc<RefCell<Cell>>>,
-    pub boundaries: [(Point3<f64>, Vector3<f64>, Vec<equation::BoundaryCondition>); 6],
-    equations: Vec<fn(&Ref<Cell>) -> f64>,
+    pub boundaries: [(Point3<f64>, Vector3<f64>, Vec<BoundaryCondition>); 6],
+    equations: Vec<Equation>,
 }
 
 #[allow(dead_code)]
@@ -35,8 +35,8 @@ impl Layer {
         r1: (f64, f64, f64),
         r2: (f64, f64, f64),
         (nx, ny, nz): (usize, usize, usize),
-        bc: [Vec<equation::BoundaryCondition>; 6],
-        equations: Vec<fn(&Ref<Cell>) -> f64>,
+        bc: [Vec<BoundaryCondition>; 6],
+        equations: Vec<Equation>,
         internal_props: Properties,
         boundary_props: Properties,
     ) -> Layer {
@@ -143,7 +143,7 @@ impl Layer {
             .filter(|c| matches!(c.variant, CellType::Internal))
         {
             for eq in self.equations.iter() {
-                y.push((eq)(&p));
+                y.push((eq.1)(&p));
             }
         }
         y
@@ -154,7 +154,7 @@ impl Layer {
             let cellref = &mut cell.borrow_mut();
             if let Boundary(bc_vector) = &cellref.variant {
                 let mut newproperties = cellref.properties;
-                for equation::BoundaryCondition(function, value) in bc_vector {
+                for BoundaryCondition(function, value) in bc_vector {
                     function(&mut newproperties, &cellref.faces, *value);
                 }
                 cellref.properties = newproperties;
@@ -180,13 +180,13 @@ impl fmt::Debug for Layer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{equation, layer::Layer, materials};
+    use crate::{equation::*, layer::Layer, materials};
     #[test]
     fn test_generation() {
-        let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
-        let bc2 = equation::BoundaryCondition(equation::heat_neumann, 0.);
-        let bc3 = equation::BoundaryCondition(equation::heat_dirichlet, 0.);
-        let bc: [Vec<equation::BoundaryCondition>; 6] = [
+        let bc1 = BoundaryCondition(heat_dirichlet, 300.);
+        let bc2 = BoundaryCondition(heat_neumann, 0.);
+        let bc3 = BoundaryCondition(heat_dirichlet, 0.);
+        let bc: [Vec<BoundaryCondition>; 6] = [
             vec![bc1],
             vec![bc2],
             vec![bc2],
@@ -200,7 +200,7 @@ mod tests {
             (1., 1., 1.),
             (nx, ny, nz),
             bc,
-            vec![equation::heat_diffusion],
+            vec![Equation(update_T, heat_diffusion)],
             materials::copper(),
             materials::copper(),
         );
@@ -212,10 +212,10 @@ mod tests {
 
     #[test]
     fn test_large_mesh() {
-        let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
-        let bc2 = equation::BoundaryCondition(equation::heat_neumann, 0.);
-        let bc3 = equation::BoundaryCondition(equation::heat_dirichlet, 0.);
-        let bc: [Vec<equation::BoundaryCondition>; 6] = [
+        let bc1 = BoundaryCondition(heat_dirichlet, 300.);
+        let bc2 = BoundaryCondition(heat_neumann, 0.);
+        let bc3 = BoundaryCondition(heat_dirichlet, 0.);
+        let bc: [Vec<BoundaryCondition>; 6] = [
             vec![bc1],
             vec![bc2],
             vec![bc2],
@@ -229,7 +229,7 @@ mod tests {
             (5., 1., 1.),
             (nx, ny, nz),
             bc,
-            vec![equation::heat_diffusion],
+            vec![Equation(update_T, heat_diffusion)],
             materials::copper(),
             materials::copper(),
         )
