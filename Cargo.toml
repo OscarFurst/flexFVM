@@ -9,7 +9,7 @@ path = "src/lib/lib.rs"
 
 [[bin]]
 name = "copper_example"
-path = "src/bin/main.rs"
+path = "src/bin/copper_example.rs"
 
 [profile.profiling]
 inherits = "release"
