@@ -3,6 +3,14 @@ name = "flex_fvm"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "flex_fvm"
+path = "src/lib/lib.rs"
+
+[[bin]]
+name = "copper_example"
+path = "src/bin/copper_example.rs"
+
 [profile.profiling]
 inherits = "release"
 debug = true
