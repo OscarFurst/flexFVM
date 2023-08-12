@@ -2,7 +2,7 @@ use debug_cell::Ref;
 use flex_fvm::{
     cell,
     equation::{BoundaryCondition, Equation},
-    materials, mesh, solver,
+    mesh, solver,
 };
 
 fn main() {
@@ -31,8 +31,8 @@ pub fn create_mesh() -> mesh::Mesh {
         n_grid,
         boundary_conditions.clone(),
         vec![Equation(update_T, heat_diffusion)],
-        materials::copper(),
-        materials::copper(),
+        copper(),
+        copper(),
     );
     block.add_layer(
         (0.5, 0., 0.),
@@ -40,8 +40,8 @@ pub fn create_mesh() -> mesh::Mesh {
         n_grid,
         boundary_conditions.clone(),
         vec![Equation(update_T, heat_diffusion)],
-        materials::copper(),
-        materials::copper(),
+        copper(),
+        copper(),
     );
     block.add_layer(
         (0., 0., 0.5),
@@ -49,8 +49,8 @@ pub fn create_mesh() -> mesh::Mesh {
         n_grid,
         boundary_conditions.clone(),
         vec![Equation(update_T, heat_diffusion)],
-        materials::copper(),
-        materials::copper(),
+        copper(),
+        copper(),
     );
     block.add_layer(
         (0.5, 0., 0.5),
@@ -58,10 +58,24 @@ pub fn create_mesh() -> mesh::Mesh {
         n_grid,
         boundary_conditions,
         vec![Equation(update_T, heat_diffusion)],
-        materials::copper(),
-        materials::copper(),
+        copper(),
+        copper(),
     );
     block
+}
+
+///////////////////
+/// Copper data ///
+///////////////////
+
+pub fn copper() -> cell::Properties {
+    cell::Properties {
+        T: 300.,
+        rho: 9000.,
+        cp: 0.001,
+        lambda: 300.,
+        ..Default::default()
+    }
 }
 
 ///////////////////////////////
