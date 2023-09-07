@@ -30,3 +30,6 @@ for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too l
 Equations process vectors<f64> instead of f64 :
 for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 817 ms, 868 ms, 830 ms (release)
 the stop_criterial function accounts for approx 200ms, that should be reduced
+
+Equations process nalgebra::DVectors<f64> instead of vectors<f64> :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 724 ms, 817 ms, 863 ms (release)

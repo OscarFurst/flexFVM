@@ -4,6 +4,7 @@ use flex_fvm::{
     equation::{BoundaryCondition, Equation},
     mesh, solver,
 };
+use nalgebra::{dvector, DVector};
 use std::fmt;
 
 fn main() {
@@ -56,9 +57,9 @@ pub fn copper() -> Properties {
 }
 
 pub fn create_mesh() -> mesh::Mesh<Properties> {
-    let bc1 = BoundaryCondition(heat_dirichlet, vec![300.]);
-    let bc2 = BoundaryCondition(heat_neumann, vec![0.]);
-    let bc3 = BoundaryCondition(heat_dirichlet, vec![0.]);
+    let bc1 = BoundaryCondition(heat_dirichlet, dvector![300.]);
+    let bc2 = BoundaryCondition(heat_neumann, dvector![0.]);
+    let bc3 = BoundaryCondition(heat_dirichlet, dvector![0.]);
     let boundary_conditions: [Vec<BoundaryCondition<Properties>>; 6] = [
         vec![bc1],
         vec![bc2.clone()],
@@ -112,26 +113,26 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
 /// Heat diffusion equation ///
 ///////////////////////////////
 #[allow(non_snake_case)]
-pub fn update_T(p: &mut Properties, T: &Vec<f64>) {
+pub fn update_T(p: &mut Properties, T: &DVector<f64>) {
     p.T = T[0];
 }
 
-pub fn heat_diffusion(p: &Ref<cell::Cell<Properties>>) -> Vec<f64> {
+pub fn heat_diffusion(p: &Ref<cell::Cell<Properties>>) -> DVector<f64> {
     let mut flux = 0.;
     for f in p.faces.iter() {
         let n = f.neighbour();
         flux -= p.properties.lambda * (p.properties.T - n.properties.T) / f.distance * f.area;
     }
-    vec![flux / p.volume / p.properties.rho / p.properties.cp]
+    dvector![flux / p.volume / p.properties.rho / p.properties.cp]
 }
 
 #[allow(non_snake_case, unused_variables)]
-pub fn heat_dirichlet(p: &mut Properties, faces: &[cell::Face<Properties>], T: &Vec<f64>) {
+pub fn heat_dirichlet(p: &mut Properties, faces: &[cell::Face<Properties>], T: &DVector<f64>) {
     p.T = T[0];
 }
 
 #[allow(non_snake_case)]
-pub fn heat_neumann(p: &mut Properties, faces: &[cell::Face<Properties>], dTdx: &Vec<f64>) {
+pub fn heat_neumann(p: &mut Properties, faces: &[cell::Face<Properties>], dTdx: &DVector<f64>) {
     let n = faces[0].neighbour();
     let mut boundary_value = n.properties.T;
     boundary_value += dTdx[0] * faces[0].distance;
