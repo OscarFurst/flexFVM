@@ -8,12 +8,18 @@ pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64
     let mut t = 0.;
     let mut it = 0;
 
-    let mut x = DVector::from_element(mesh.vec_size(), 0.);
+    // x contains the initial solution
+    // TODO : this is pretty hard to define once the set of equations is complex
+    let mut x = vec![vec![0.]; mesh.vec_size()];
     let start = Instant::now();
     while t < t_end {
         mesh.update(&x);
         let y = mesh.setup_equations(&t, &x);
-        x += h0 * &y;
+        for i in 0..x.len() {
+            for j in 0..x[i].len() {
+                x[i][j] += h0 * y[i][j];
+            }
+        }
         if stop_criterial(&y, t) {
             break;
         };
@@ -29,13 +35,17 @@ pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64
     mesh
 }
 
-fn stop_criterial(y: &DVector<f64>, t: f64) -> bool {
-    if y.iter().any(|x| x.is_nan()) {
+fn stop_criterial(y: &Vec<Vec<f64>>, t: f64) -> bool {
+    if y.iter().any(|x| x.iter().any(|x| x.is_nan())) {
         println!("NaN found in solution vector");
         return true;
-    } else if y.abs().max() < 0.0000001 {
-        println!("Steady state reached at t = {} s", t);
-        return true;
+    } else {
+        let residuals = DVector::from_vec(y.clone().into_iter().flatten().collect());
+        if residuals.abs().max() < 0.0000001 {
+            println!("Steady state reached at t = {} s", t);
+            return true;
+        }
     }
+
     false
 }

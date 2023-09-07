@@ -115,19 +115,19 @@ impl<T: HasProperties> Mesh<T> {
         }
     }
 
-    pub fn setup_equations(&self, _t: &f64, _x: &DVector<f64>) -> DVector<f64> {
+    pub fn setup_equations(&self, _t: &f64, _x: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         let mut y = vec![];
         for layer in self.layers.iter() {
             y.append(&mut layer.equations());
         }
-        DVector::from_vec(y)
+        y
     }
 
-    pub fn update(&mut self, x: &DVector<f64>) {
+    pub fn update(&mut self, x: &Vec<Vec<f64>>) {
         // takes the solution and updates every cell with it
         for (i, layer) in self.layers.iter().enumerate() {
             let n = layer.n_eq();
-            layer.update(&x.rows(i * n, n).clone_owned());
+            layer.update(&x[i * n..(i + 1) * n]);
         }
         self.enforce_boundary_conditions();
     }

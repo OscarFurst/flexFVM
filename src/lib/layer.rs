@@ -125,12 +125,12 @@ impl<T: HasProperties> Layer<T> {
         self
     }
 
-    pub fn update(&self, x: &DVector<f64>) {
+    pub fn update(&self, x: &[Vec<f64>]) {
         let mut i = 0;
         for mut cell in self.cells.iter().map(|c| c.borrow_mut()) {
             if matches!(cell.variant, CellType::Internal) {
                 for eq in self.equations.iter() {
-                    (eq.0)(&mut cell.properties, x[i]);
+                    (eq.0)(&mut cell.properties, &x[i]);
                     i += 1;
                 }
                 cell.properties.update();
@@ -138,7 +138,7 @@ impl<T: HasProperties> Layer<T> {
         }
     }
 
-    pub fn equations(&self) -> Vec<f64> {
+    pub fn equations(&self) -> Vec<Vec<f64>> {
         let mut y = Vec::with_capacity(self.n_eq());
         for p in self
             .cells
@@ -159,7 +159,7 @@ impl<T: HasProperties> Layer<T> {
             if let Boundary(bc_vector) = &cellref.variant {
                 let mut newproperties = cellref.properties;
                 for BoundaryCondition(function, value) in bc_vector {
-                    function(&mut newproperties, &cellref.faces, *value);
+                    function(&mut newproperties, &cellref.faces, value);
                 }
                 cellref.properties = newproperties;
             }

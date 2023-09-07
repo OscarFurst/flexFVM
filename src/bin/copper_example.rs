@@ -56,15 +56,15 @@ pub fn copper() -> Properties {
 }
 
 pub fn create_mesh() -> mesh::Mesh<Properties> {
-    let bc1 = BoundaryCondition(heat_dirichlet, 300.);
-    let bc2 = BoundaryCondition(heat_neumann, 0.);
-    let bc3 = BoundaryCondition(heat_dirichlet, 0.);
+    let bc1 = BoundaryCondition(heat_dirichlet, vec![300.]);
+    let bc2 = BoundaryCondition(heat_neumann, vec![0.]);
+    let bc3 = BoundaryCondition(heat_dirichlet, vec![0.]);
     let boundary_conditions: [Vec<BoundaryCondition<Properties>>; 6] = [
         vec![bc1],
-        vec![bc2],
-        vec![bc2],
+        vec![bc2.clone()],
+        vec![bc2.clone()],
         vec![bc3],
-        vec![bc2],
+        vec![bc2.clone()],
         vec![bc2],
     ];
     let n_grid = (50, 1, 20);
@@ -112,28 +112,28 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
 /// Heat diffusion equation ///
 ///////////////////////////////
 #[allow(non_snake_case)]
-pub fn update_T(p: &mut Properties, T: f64) {
-    p.T = T;
+pub fn update_T(p: &mut Properties, T: &Vec<f64>) {
+    p.T = T[0];
 }
 
-pub fn heat_diffusion(p: &Ref<cell::Cell<Properties>>) -> f64 {
+pub fn heat_diffusion(p: &Ref<cell::Cell<Properties>>) -> Vec<f64> {
     let mut flux = 0.;
     for f in p.faces.iter() {
         let n = f.neighbour();
         flux -= p.properties.lambda * (p.properties.T - n.properties.T) / f.distance * f.area;
     }
-    flux / p.volume / p.properties.rho / p.properties.cp
+    vec![flux / p.volume / p.properties.rho / p.properties.cp]
 }
 
 #[allow(non_snake_case, unused_variables)]
-pub fn heat_dirichlet(p: &mut Properties, faces: &[cell::Face<Properties>], T: f64) {
-    p.T = T;
+pub fn heat_dirichlet(p: &mut Properties, faces: &[cell::Face<Properties>], T: &Vec<f64>) {
+    p.T = T[0];
 }
 
 #[allow(non_snake_case)]
-pub fn heat_neumann(p: &mut Properties, faces: &[cell::Face<Properties>], dTdx: f64) {
+pub fn heat_neumann(p: &mut Properties, faces: &[cell::Face<Properties>], dTdx: &Vec<f64>) {
     let n = faces[0].neighbour();
     let mut boundary_value = n.properties.T;
-    boundary_value += dTdx * faces[0].distance;
+    boundary_value += dTdx[0] * faces[0].distance;
     p.T = boundary_value;
 }
