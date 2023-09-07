@@ -1,6 +1,6 @@
 // for now all cells are rectangular parallelepipeds
 use debug_cell::{Ref, RefCell};
-use nalgebra::{Point3, Vector3};
+use nalgebra::{DVector, Point3, Vector3};
 use std::fmt;
 use std::rc::Rc;
 
@@ -11,38 +11,25 @@ use crate::equation;
 ///////////////////////////
 
 #[allow(non_snake_case)]
-pub struct Cell {
+pub struct Cell<T: HasProperties> {
     // geometric properties
     pub r: Point3<f64>, // m
     pub volume: f64,    // m3
     pub vertices: Vec<Point3<f64>>,
-    pub variant: CellType,
-    pub properties: Properties,
+    pub variant: CellType<T>,
+    pub properties: T,
     // faces of the volume
-    pub faces: Vec<Face>,
+    pub faces: Vec<Face<T>>,
 }
 
-#[allow(non_snake_case)]
-#[derive(Default, Clone, Copy)]
-pub struct Properties {
-    // physical properties
-    pub T: f64,   // K
-    pub rho: f64, // kg/m3
-    pub cp: f64,  // J/k/kg
-    // solid
-    pub lambda: f64, // W/m/k
-    // fluid
-    pub u: Vector3<f64>, // m/s
-    pub D: f64,          // J/k/kg
+pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
+    const N_VARIABLES: usize; // number of variables in the equation
+    fn update(&mut self, x: &DVector<f64>); // TODO : this function probably takes a vector of boxes as argument or something that can store the output of the equations
+
+    // fn ...
 }
 
-impl Properties {
-    pub fn h(&self) -> f64 {
-        self.T * self.cp * self.rho
-    }
-}
-
-impl Cell {
+impl<T: HasProperties> Cell<T> {
     pub fn create_rectangle(
         &mut self,
         origin: Point3<f64>,
@@ -75,7 +62,7 @@ impl Cell {
         self.vertices = vertices;
     }
 
-    pub fn face_on_plane(&self, point: &Point3<f64>, normal: &Vector3<f64>) -> Option<&Face> {
+    pub fn face_on_plane(&self, point: &Point3<f64>, normal: &Vector3<f64>) -> Option<&Face<T>> {
         // finds out if "self" has a face on a boudnary plane
         self.faces
             .iter()
@@ -83,11 +70,11 @@ impl Cell {
     }
 
     pub fn boundary_from_cell(
-        cell: &Cell,
+        cell: &Cell<T>,
         normal: &Vector3<f64>,
-        face: &Face,
-        bc: Vec<equation::BoundaryCondition>,
-    ) -> Cell {
+        face: &Face<T>,
+        bc: Vec<equation::BoundaryCondition<T>>,
+    ) -> Cell<T> {
         // creates a new "boundary cell" from the provided internal cell
         // the boundary condition is not linked to the cell after the function, it needs to be done when linking the cells
         let boundary_cell = Cell {
@@ -102,21 +89,19 @@ impl Cell {
     }
 }
 
-impl fmt::Debug for Cell {
+impl<T: HasProperties> fmt::Debug for Cell<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:.1}", self.properties.T)
+        self.properties.fmt(f)
     }
 }
 
-impl Default for Cell {
+impl<T: HasProperties> Default for Cell<T> {
     fn default() -> Self {
         Cell {
             r: Point3::new(0., 0., 0.),
             vertices: Vec::new(),
             volume: 0.,
-            properties: Properties {
-                ..Default::default()
-            },
+            properties: T::default(),
             variant: CellType::Internal,
             faces: Vec::new(),
         }
@@ -128,16 +113,16 @@ impl Default for Cell {
 ////////////
 
 #[derive(Clone)]
-pub struct Face {
+pub struct Face<T: HasProperties> {
     pub vertices: Vec<Point3<f64>>,
     pub center: Point3<f64>,
     pub area: f64,
-    pub neighbour: Option<Rc<RefCell<Cell>>>,
+    pub neighbour: Option<Rc<RefCell<Cell<T>>>>,
     pub n: Vector3<f64>,
     pub distance: f64,
 }
 
-impl Face {
+impl<T: HasProperties> Face<T> {
     fn new(vertices: &Vec<Point3<f64>>) -> Self {
         // TODO: only implemented for rectangle
         let vects: Vector3<f64> = vertices.iter().map(|v| v.coords).sum(); // this is so ugly
@@ -172,7 +157,7 @@ impl Face {
         self.vertices[index_of_min.unwrap()]
     }
 
-    pub fn neighbour(&self) -> Ref<Cell> {
+    pub fn neighbour(&self) -> Ref<Cell<T>> {
         self.neighbour.as_ref().unwrap().borrow()
     }
 }
@@ -181,13 +166,13 @@ impl Face {
 /// CELLTYPE and BOUNDARYCONDITION ///
 //////////////////////////////////////
 #[derive(Clone)]
-pub enum CellType {
+pub enum CellType<T: HasProperties> {
     Internal,
-    Boundary(Vec<equation::BoundaryCondition>),
+    Boundary(Vec<equation::BoundaryCondition<T>>),
     Nil,
 }
 
-impl fmt::Debug for CellType {
+impl<T: HasProperties> fmt::Debug for CellType<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             CellType::Internal => write!(f, "Internal"),

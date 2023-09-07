@@ -1,8 +1,9 @@
+use crate::cell::HasProperties;
 use crate::mesh;
 use nalgebra::DVector;
 use std::time::Instant;
 
-pub fn solve(initial_mesh: &mesh::Mesh, t_end: f64, h0: f64) -> mesh::Mesh {
+pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64) -> mesh::Mesh<T> {
     let mut mesh = initial_mesh.clone();
     let mut t = 0.;
     let mut it = 0;

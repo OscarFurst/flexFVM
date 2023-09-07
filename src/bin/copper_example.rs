@@ -1,9 +1,10 @@
 use debug_cell::Ref;
 use flex_fvm::{
-    cell,
+    cell::{self, HasProperties},
     equation::{BoundaryCondition, Equation},
     mesh, solver,
 };
+use std::fmt;
 
 fn main() {
     let initial_mesh = create_mesh();
@@ -11,11 +12,55 @@ fn main() {
     println!("{:?}", solution)
 }
 
-pub fn create_mesh() -> mesh::Mesh {
+////////////////////////
+/// Cell Propertires ///
+////////////////////////
+
+#[allow(non_snake_case)]
+#[derive(Default, Clone, Copy)]
+pub struct Properties {
+    // physical properties
+    pub T: f64,   // K
+    pub rho: f64, // kg/m3
+    pub cp: f64,  // J/k/kg
+    // solid
+    pub lambda: f64, // W/m/k
+}
+
+impl fmt::Debug for Properties {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.T)
+    }
+}
+
+impl HasProperties for Properties {
+    const N_VARIABLES: usize = 1;
+    fn update(&mut self, x: &nalgebra::DVector<f64>) {
+        // x contains the solution of the equations
+        // the other variables may also be updated here
+        self.T = x[0];
+    }
+}
+
+///////////////////
+/// Copper data ///
+///////////////////
+
+pub fn copper() -> Properties {
+    Properties {
+        T: 300.,
+        rho: 9000.,
+        cp: 0.001,
+        lambda: 300.,
+        ..Default::default()
+    }
+}
+
+pub fn create_mesh() -> mesh::Mesh<Properties> {
     let bc1 = BoundaryCondition(heat_dirichlet, 300.);
     let bc2 = BoundaryCondition(heat_neumann, 0.);
     let bc3 = BoundaryCondition(heat_dirichlet, 0.);
-    let boundary_conditions: [Vec<BoundaryCondition>; 6] = [
+    let boundary_conditions: [Vec<BoundaryCondition<Properties>>; 6] = [
         vec![bc1],
         vec![bc2],
         vec![bc2],
@@ -64,43 +109,15 @@ pub fn create_mesh() -> mesh::Mesh {
     block
 }
 
-///////////////////
-/// Copper data ///
-///////////////////
-
-pub fn copper() -> cell::Properties {
-    cell::Properties {
-        T: 300.,
-        rho: 9000.,
-        cp: 0.001,
-        lambda: 300.,
-        ..Default::default()
-    }
-}
-
 ///////////////////////////////
 /// Heat diffusion equation ///
 ///////////////////////////////
 #[allow(non_snake_case)]
-pub fn update_T(p: &mut cell::Properties, T: f64) {
+pub fn update_T(p: &mut Properties, T: f64) {
     p.T = T;
 }
 
-pub fn heat_convection_diffusion(p: &Ref<cell::Cell>) -> f64 {
-    let mut diffusive_flux = 0.;
-    let mut convective_flux = 0.;
-    for f in p.faces.iter() {
-        let n = f.neighbour();
-        diffusive_flux -= p.properties.D * (p.properties.T - n.properties.T) / f.distance * f.area;
-        convective_flux -=
-            ((p.properties.h() + n.properties.h()) * (p.properties.u + n.properties.u) / 4.)
-                .dot(&f.n)
-                * f.area;
-    }
-    (diffusive_flux + convective_flux) / p.volume / p.properties.rho / p.properties.cp
-}
-
-pub fn heat_diffusion(p: &Ref<cell::Cell>) -> f64 {
+pub fn heat_diffusion(p: &Ref<cell::Cell<Properties>>) -> f64 {
     let mut flux = 0.;
     for f in p.faces.iter() {
         let n = f.neighbour();
@@ -110,12 +127,12 @@ pub fn heat_diffusion(p: &Ref<cell::Cell>) -> f64 {
 }
 
 #[allow(non_snake_case, unused_variables)]
-pub fn heat_dirichlet(p: &mut cell::Properties, faces: &[cell::Face], T: f64) {
+pub fn heat_dirichlet(p: &mut Properties, faces: &[cell::Face<Properties>], T: f64) {
     p.T = T;
 }
 
 #[allow(non_snake_case)]
-pub fn heat_neumann(p: &mut cell::Properties, faces: &[cell::Face], dTdx: f64) {
+pub fn heat_neumann(p: &mut Properties, faces: &[cell::Face<Properties>], dTdx: f64) {
     let n = faces[0].neighbour();
     let mut boundary_value = n.properties.T;
     boundary_value += dTdx * faces[0].distance;
