@@ -15,12 +15,6 @@ pub struct Layer<T: HasProperties> {
 
 #[allow(dead_code)]
 impl<T: HasProperties> Layer<T> {
-    pub fn update(&mut self, x: &DVector<f64>) {
-        for i in 0..self.cells.len() {
-            self.cells[i].borrow_mut().properties.update(x);
-        }
-    }
-
     pub fn n_eq(&self) -> usize {
         // returns the total number of equations that need to be solved for the layer
         self.cells
@@ -129,6 +123,19 @@ impl<T: HasProperties> Layer<T> {
             }
         }
         self
+    }
+
+    pub fn update(&self, x: &DVector<f64>) {
+        let mut i = 0;
+        for mut cell in self.cells.iter().map(|c| c.borrow_mut()) {
+            if matches!(cell.variant, CellType::Internal) {
+                for eq in self.equations.iter() {
+                    (eq.0)(&mut cell.properties, x[i]);
+                    i += 1;
+                }
+                cell.properties.update();
+            }
+        }
     }
 
     pub fn equations(&self) -> Vec<f64> {

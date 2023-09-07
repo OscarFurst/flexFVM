@@ -35,10 +35,9 @@ impl fmt::Debug for Properties {
 
 impl HasProperties for Properties {
     const N_VARIABLES: usize = 1;
-    fn update(&mut self, x: &nalgebra::DVector<f64>) {
+    fn update(&mut self) {
         // x contains the solution of the equations
         // the other variables may also be updated here
-        self.T = x[0];
     }
 }
 

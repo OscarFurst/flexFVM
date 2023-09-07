@@ -1,6 +1,6 @@
 // for now all cells are rectangular parallelepipeds
 use debug_cell::{Ref, RefCell};
-use nalgebra::{DVector, Point3, Vector3};
+use nalgebra::{Point3, Vector3};
 use std::fmt;
 use std::rc::Rc;
 
@@ -24,9 +24,7 @@ pub struct Cell<T: HasProperties> {
 
 pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
     const N_VARIABLES: usize; // number of variables in the equation
-    fn update(&mut self, x: &DVector<f64>); // TODO : this function probably takes a vector of boxes as argument or something that can store the output of the equations
-
-    // fn ...
+    fn update(&mut self); // this function only updates derived variables, computed variables are updated by the equations
 }
 
 impl<T: HasProperties> Cell<T> {

@@ -70,13 +70,11 @@ impl<T: HasProperties> Mesh<T> {
                             // we found a pair
                             // make copies of the cells they are pointing to
                             let cell_ref =
-                                Rc::clone(&cell.borrow().faces[0].neighbour.as_ref().unwrap());
-                            let other_cell_ref = Rc::clone(
-                                &other_cell.borrow().faces[0].neighbour.as_ref().unwrap(),
-                            );
-                            let other_cell_ref_givaway = Rc::clone(
-                                &other_cell.borrow().faces[0].neighbour.as_ref().unwrap(),
-                            );
+                                Rc::clone(cell.borrow().faces[0].neighbour.as_ref().unwrap());
+                            let other_cell_ref =
+                                Rc::clone(other_cell.borrow().faces[0].neighbour.as_ref().unwrap());
+                            let other_cell_ref_givaway =
+                                Rc::clone(other_cell.borrow().faces[0].neighbour.as_ref().unwrap());
                             let dr = other_cell_ref.borrow().r - cell_ref.borrow().r;
                             {
                                 // limits lifetime of borrowed_cell
@@ -125,17 +123,11 @@ impl<T: HasProperties> Mesh<T> {
         DVector::from_vec(y)
     }
 
-    pub fn update(&mut self, y: &DVector<f64>) {
+    pub fn update(&mut self, x: &DVector<f64>) {
         // takes the solution and updates every cell with it
-        let mut i = 0;
-        for layer in self.layers.iter() {
-            for mut cell in layer.cells.iter().map(|c| c.borrow_mut()) {
-                if matches!(cell.variant, cell::CellType::Internal) {
-                    cell.properties
-                        .update(&y.rows(i, T::N_VARIABLES).clone_owned());
-                    i += 1;
-                }
-            }
+        for (i, layer) in self.layers.iter().enumerate() {
+            let n = layer.n_eq();
+            layer.update(&x.rows(i * n, n).clone_owned());
         }
         self.enforce_boundary_conditions();
     }
