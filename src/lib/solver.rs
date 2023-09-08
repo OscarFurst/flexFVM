@@ -1,6 +1,6 @@
 use crate::cell::HasProperties;
 use crate::mesh;
-use nalgebra::{dvector, DVector};
+use nalgebra::DVector;
 use std::time::Instant;
 
 pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64) -> mesh::Mesh<T> {
@@ -9,8 +9,7 @@ pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64
     let mut it = 0;
 
     // x contains the initial solution
-    // TODO : this is pretty hard to define once the set of equations is complex
-    let mut x = vec![dvector![0.]; mesh.vec_size()]; // TODO : this does not have the right dimensions for the channel case
+    let mut x = initial_mesh.get_state();
     let start = Instant::now();
     while t < t_end {
         mesh.update(&x);

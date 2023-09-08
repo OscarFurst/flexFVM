@@ -91,9 +91,9 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
     air.u = Vector3::new(1., 0., 0.);
     let n_grid = (1000, 30, 1);
     let mut block = mesh::Mesh::new();
-    let mass_eq = generate_equation_structure!(update_rho, euler_mass, f64);
-    let impulse_eq = generate_equation_structure!(update_impulse, euler_impulse, Vector3<f64>);
-    let energy_eq = generate_equation_structure!(update_energy, euler_energy, f64);
+    let mass_eq = generate_equation_structure!(get_rho, update_rho, euler_mass, 1);
+    let impulse_eq = generate_equation_structure!(get_impulse, update_impulse, euler_impulse, 3);
+    let energy_eq = generate_equation_structure!(get_energy, update_energy, euler_energy, 1);
     block.add_layer(
         (0., 0., 0.),
         (10., 0.3, 0.01),
@@ -120,7 +120,10 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
 // with E = rho * e + 1/2 * rho * u^2
 // and p = (gamma - 1) * rho * e
 
-#[allow(non_snake_case)]
+pub fn get_rho(p: &Properties) -> f64 {
+    p.rho
+}
+
 pub fn update_rho(p: &mut Properties, rho: f64) {
     p.rho = rho;
 }
@@ -136,6 +139,10 @@ pub fn euler_mass(p: &Ref<cell::Cell<Properties>>) -> f64 {
         convective_flux -= (rho_avg * u_avg).dot(&f.n) * f.area;
     }
     convective_flux
+}
+
+pub fn get_impulse(p: &Properties) -> Vector3<f64> {
+    p.rho_u
 }
 
 pub fn update_impulse(p: &mut Properties, rho_u: &Vector3<f64>) {
@@ -160,6 +167,11 @@ pub fn euler_impulse(p: &Ref<cell::Cell<Properties>>) -> Vector3<f64> {
         // TODO : check if this is correct...
     }
     convective_flux
+}
+
+#[allow(non_snake_case)]
+pub fn get_energy(p: &Properties) -> f64 {
+    p.E
 }
 
 #[allow(non_snake_case)]

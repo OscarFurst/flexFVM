@@ -127,17 +127,20 @@ impl<T: HasProperties> Layer<T> {
         self
     }
 
-    pub fn update(&self, x: &[DVector<f64>]) {
-        let mut i = 0;
-        for mut cell in self.cells.iter().map(|c| c.borrow_mut()) {
-            if matches!(cell.variant, CellType::Internal) {
-                for eq in self.equations.iter() {
-                    (eq.lhs)(&mut cell.properties, &x[i]);
-                    i += 1;
-                }
+    pub fn get_state(&self) -> Vec<DVector<f64>> {
+        // returns the current state of the layer
+        let mut x: Vec<DVector<f64>> = Vec::with_capacity(self.n_eq());
+        for cell in self
+            .cells
+            .iter()
+            .map(|rc| rc.borrow())
+            .filter(|c| matches!(c.variant, CellType::Internal))
+        {
+            for eq in self.equations.iter() {
+                x.push((eq.get)(&cell.properties));
             }
-            cell.properties.update();
         }
+        x
     }
 
     pub fn equations(&self) -> Vec<DVector<f64>> {
@@ -153,6 +156,19 @@ impl<T: HasProperties> Layer<T> {
             }
         }
         y
+    }
+
+    pub fn update(&self, x: &[DVector<f64>]) {
+        let mut i = 0;
+        for mut cell in self.cells.iter().map(|c| c.borrow_mut()) {
+            if matches!(cell.variant, CellType::Internal) {
+                for eq in self.equations.iter() {
+                    (eq.lhs)(&mut cell.properties, &x[i]);
+                    i += 1;
+                }
+            }
+            cell.properties.update();
+        }
     }
 
     pub fn boundary_conditions(&self) {

@@ -54,7 +54,7 @@ impl HasProperties for Properties {
 
 pub fn copper() -> Properties {
     Properties {
-        T: 300.,
+        T: 0.,
         rho: 9000.,
         cp: 0.001,
         lambda: 300.,
@@ -66,7 +66,7 @@ pub fn copper() -> Properties {
 pub fn create_mesh() -> mesh::Mesh<Properties> {
     // todo : add a macro that wraps all that into an "Equation" struct
     let heat_diffusion_equations =
-        generate_equation_structure!(update_T_user, heat_diffusion_user, f64);
+        generate_equation_structure!(get_T, update_T_user, heat_diffusion_user, 1);
     // define the boundary conditions
     let bc1 = BoundaryCondition(heat_dirichlet, dvector![300.]);
     let bc2 = BoundaryCondition(heat_neumann, dvector![0.]);
@@ -123,6 +123,11 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
 ///////////////////////////////
 /// Heat diffusion equation ///
 ///////////////////////////////
+#[allow(non_snake_case)]
+pub fn get_T(p: &Properties) -> f64 {
+    p.T
+}
+
 #[allow(non_snake_case)]
 pub fn update_T_user(p: &mut Properties, T: f64) {
     p.T = T;

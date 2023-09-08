@@ -15,15 +15,6 @@ impl<T: HasProperties> Mesh<T> {
         Mesh { layers: Vec::new() }
     }
 
-    pub fn vec_size(&self) -> usize {
-        // returns the total number of equations that need to be solved in the domain
-        let mut n = 0;
-        for layer in self.layers.iter() {
-            n += layer.n_eq();
-        }
-        n
-    }
-
     pub fn n_cells(&self) -> usize {
         // returns the total number of cells in the domain
         let mut n = 0;
@@ -118,10 +109,13 @@ impl<T: HasProperties> Mesh<T> {
         }
     }
 
-    pub fn enforce_boundary_conditions(&mut self) {
+    pub fn get_state(&self) -> Vec<DVector<f64>> {
+        // returns the current state of the mesh
+        let mut x: Vec<DVector<f64>> = Vec::with_capacity(self.n_cells());
         for layer in self.layers.iter() {
-            layer.boundary_conditions();
+            x.append(&mut layer.get_state());
         }
+        x
     }
 
     pub fn setup_equations(&self, _t: &f64, _x: &[DVector<f64>]) -> Vec<DVector<f64>> {
@@ -139,6 +133,12 @@ impl<T: HasProperties> Mesh<T> {
             layer.update(&x[i * n..(i + 1) * n]);
         }
         self.enforce_boundary_conditions();
+    }
+
+    pub fn enforce_boundary_conditions(&mut self) {
+        for layer in self.layers.iter() {
+            layer.boundary_conditions();
+        }
     }
 }
 
