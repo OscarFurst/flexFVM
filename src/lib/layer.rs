@@ -88,8 +88,11 @@ impl<T: HasProperties> Layer<T> {
 
     pub fn link(self) -> Self {
         // compare cells two by two
-        for cell in self.cells.iter() {
-            for other_cell in self.cells.iter() {
+        let n_cells = self.cells.len();
+        for i in 0..n_cells {
+            let cell = &self.cells[i];
+            for j in i + 1..n_cells {
+                let other_cell = &self.cells[j];
                 // exclude the possibility of them being the same cell
                 let dr = other_cell.borrow().r - cell.borrow().r;
                 if dr.norm() < f64::EPSILON {

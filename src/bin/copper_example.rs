@@ -6,9 +6,17 @@ use flex_fvm::{
 use nalgebra::{dvector, DVector};
 use std::cell::Ref;
 use std::fmt;
+use std::time::Instant;
 
 fn main() {
+    let start = Instant::now();
     let initial_mesh = create_mesh();
+    let duration = start.elapsed();
+    println!(
+        "Meshing time : {} ms. Number of cells : {}",
+        duration.as_millis(),
+        initial_mesh.n_cells()
+    );
     let solution = solver::solve(&initial_mesh, 0.001, 0.000001);
     println!("{:?}", solution)
 }

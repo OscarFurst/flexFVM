@@ -24,6 +24,15 @@ impl<T: HasProperties> Mesh<T> {
         n
     }
 
+    pub fn n_cells(&self) -> usize {
+        // returns the total number of cells in the domain
+        let mut n = 0;
+        for layer in self.layers.iter() {
+            n += layer.cells.len();
+        }
+        n
+    }
+
     pub fn add_layer(
         &mut self,
         r1: (f64, f64, f64),

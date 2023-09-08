@@ -10,7 +10,7 @@ pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64
 
     // x contains the initial solution
     // TODO : this is pretty hard to define once the set of equations is complex
-    let mut x = vec![dvector![0.]; mesh.vec_size()];
+    let mut x = vec![dvector![0.]; mesh.vec_size()]; // TODO : this does not have the right dimensions for the channel case
     let start = Instant::now();
     while t < t_end {
         mesh.update(&x);
