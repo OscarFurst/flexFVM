@@ -1,10 +1,10 @@
-use debug_cell::Ref;
 use flex_fvm::{
     cell::{self, HasProperties},
     equation::*,
     generate_equation_function, generate_update_function, mesh, solver,
 };
 use nalgebra::{dvector, DVector};
+use std::cell::Ref;
 use std::fmt;
 
 fn main() {
@@ -50,7 +50,7 @@ pub fn copper() -> Properties {
         rho: 9000.,
         cp: 0.001,
         lambda: 300.,
-        ..Default::default()
+        //..Default::default()
     }
 }
 

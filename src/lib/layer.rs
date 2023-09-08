@@ -2,9 +2,8 @@
 use crate::cell::CellType::*;
 use crate::cell::*;
 use crate::equation::{BoundaryCondition, Equation};
-use debug_cell::RefCell;
 use nalgebra::{DVector, Point3, Vector3};
-use std::{fmt, rc::Rc};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 #[derive(Clone)]
 pub struct Layer<T: HasProperties> {
@@ -133,8 +132,8 @@ impl<T: HasProperties> Layer<T> {
                     (eq.0)(&mut cell.properties, &x[i]);
                     i += 1;
                 }
-                cell.properties.update();
             }
+            cell.properties.update();
         }
     }
 

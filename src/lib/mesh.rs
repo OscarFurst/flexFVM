@@ -115,7 +115,7 @@ impl<T: HasProperties> Mesh<T> {
         }
     }
 
-    pub fn setup_equations(&self, _t: &f64, _x: &Vec<DVector<f64>>) -> Vec<DVector<f64>> {
+    pub fn setup_equations(&self, _t: &f64, _x: &[DVector<f64>]) -> Vec<DVector<f64>> {
         let mut y = vec![];
         for layer in self.layers.iter() {
             y.append(&mut layer.equations());
@@ -123,7 +123,7 @@ impl<T: HasProperties> Mesh<T> {
         y
     }
 
-    pub fn update(&mut self, x: &Vec<DVector<f64>>) {
+    pub fn update(&mut self, x: &[DVector<f64>]) {
         // takes the solution and updates every cell with it
         for (i, layer) in self.layers.iter().enumerate() {
             let n = layer.n_eq();

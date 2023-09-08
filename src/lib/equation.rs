@@ -1,7 +1,7 @@
 use crate::cell;
 use crate::cell::HasProperties;
-use debug_cell::Ref;
 use nalgebra::DVector;
+use std::cell::Ref;
 
 #[derive(Clone)]
 pub struct BoundaryCondition<T: HasProperties>(

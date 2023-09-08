@@ -11,6 +11,10 @@ path = "src/lib/lib.rs"
 name = "copper_example"
 path = "src/bin/copper_example.rs"
 
+[[bin]]
+name = "channel_example"
+path = "src/bin/channel_example.rs"
+
 [profile.profiling]
 inherits = "release"
 debug = true
@@ -21,4 +25,4 @@ debug = true
 nalgebra = { version = "0.32.1", features = ["serde-serialize"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-debug-cell = "0.1.1"
+#debug-cell = "0.1.1"

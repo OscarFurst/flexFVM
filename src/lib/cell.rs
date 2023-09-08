@@ -1,8 +1,7 @@
 // for now all cells are rectangular parallelepipeds
-use debug_cell::{Ref, RefCell};
 use nalgebra::{Point3, Vector3};
 use std::fmt;
-use std::rc::Rc;
+use std::{cell::Ref, cell::RefCell, rc::Rc};
 
 use crate::equation;
 

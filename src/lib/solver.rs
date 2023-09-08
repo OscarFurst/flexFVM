@@ -35,7 +35,7 @@ pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64
     mesh
 }
 
-fn stop_criterial(y: &Vec<DVector<f64>>, t: f64) -> bool {
+fn stop_criterial(y: &[DVector<f64>], t: f64) -> bool {
     if y.iter().any(|x| x.iter().any(|x| x.is_nan())) {
         println!("NaN found in solution vector");
         return true;
