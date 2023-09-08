@@ -67,6 +67,10 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
     // todo : add a macro that wraps all that into an "Equation" struct
     let update_T = generate_update_function!(update_T_user, f64);
     let heat_diffusion = generate_equation_function!(heat_diffusion_user, f64);
+    let heat_diffusion_equations = Equation {
+        lhs: update_T,
+        rhs: heat_diffusion,
+    };
     // define the boundary conditions
     let bc1 = BoundaryCondition(heat_dirichlet, dvector![300.]);
     let bc2 = BoundaryCondition(heat_neumann, dvector![0.]);
@@ -86,7 +90,7 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
         (0.5, 1., 0.5),
         n_grid,
         boundary_conditions.clone(),
-        vec![Equation(update_T, heat_diffusion)],
+        vec![heat_diffusion_equations],
         copper(),
         copper(),
     );
@@ -95,7 +99,7 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
         (1., 1., 0.5),
         n_grid,
         boundary_conditions.clone(),
-        vec![Equation(update_T, heat_diffusion)],
+        vec![heat_diffusion_equations],
         copper(),
         copper(),
     );
@@ -104,7 +108,7 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
         (0.5, 1., 1.),
         n_grid,
         boundary_conditions.clone(),
-        vec![Equation(update_T, heat_diffusion)],
+        vec![heat_diffusion_equations],
         copper(),
         copper(),
     );
@@ -113,7 +117,7 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
         (1., 1., 1.),
         n_grid,
         boundary_conditions,
-        vec![Equation(update_T, heat_diffusion)],
+        vec![heat_diffusion_equations],
         copper(),
         copper(),
     );

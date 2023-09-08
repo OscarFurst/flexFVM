@@ -11,10 +11,20 @@ pub struct BoundaryCondition<T: HasProperties>(
 
 // An Equation is a combination of a
 #[derive(Clone, Copy)]
-pub struct Equation<T: HasProperties>(
-    pub fn(&mut T, &DVector<f64>),
-    pub fn(&Ref<cell::Cell<T>>) -> DVector<f64>,
-);
+pub struct Equation<T: HasProperties> {
+    pub lhs: fn(&mut T, &DVector<f64>),
+    pub rhs: fn(&Ref<cell::Cell<T>>) -> DVector<f64>,
+}
+
+#[macro_export]
+macro_rules! generate_equation_structure {
+    ($update_function:ident, $equation_function:ident, f64) => {
+        Equation {
+            rhs: generate_update_function!($update_function, f64),
+            lhs: generate_equation_function!($equation_function, f64),
+        }
+    };
+}
 
 #[macro_export]
 macro_rules! generate_update_function {

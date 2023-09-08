@@ -97,9 +97,18 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
         n_grid,
         boundary_conditions,
         vec![
-            Equation(update_rho, euler_mass),
-            Equation(update_impulse, euler_impulse),
-            Equation(update_energy, euler_energy),
+            Equation {
+                lhs: update_rho,
+                rhs: euler_mass,
+            },
+            Equation {
+                lhs: update_impulse,
+                rhs: euler_impulse,
+            },
+            Equation {
+                lhs: update_energy,
+                rhs: euler_energy,
+            },
         ],
         air,
         air,

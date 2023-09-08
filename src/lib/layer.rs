@@ -132,7 +132,7 @@ impl<T: HasProperties> Layer<T> {
         for mut cell in self.cells.iter().map(|c| c.borrow_mut()) {
             if matches!(cell.variant, CellType::Internal) {
                 for eq in self.equations.iter() {
-                    (eq.0)(&mut cell.properties, &x[i]);
+                    (eq.lhs)(&mut cell.properties, &x[i]);
                     i += 1;
                 }
             }
@@ -149,7 +149,7 @@ impl<T: HasProperties> Layer<T> {
             .filter(|c| matches!(c.variant, CellType::Internal))
         {
             for eq in self.equations.iter() {
-                y.push((eq.1)(&p));
+                y.push((eq.rhs)(&p));
             }
         }
         y
