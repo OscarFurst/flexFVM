@@ -1,7 +1,7 @@
 use flex_fvm::{
     cell::{self, HasProperties},
     equation::*,
-    generate_equation_function, generate_update_function, mesh, solver,
+    generate_equation_structure, mesh, solver,
 };
 use nalgebra::{dvector, DVector};
 use std::cell::Ref;
@@ -65,12 +65,8 @@ pub fn copper() -> Properties {
 #[allow(non_snake_case)]
 pub fn create_mesh() -> mesh::Mesh<Properties> {
     // todo : add a macro that wraps all that into an "Equation" struct
-    let update_T = generate_update_function!(update_T_user, f64);
-    let heat_diffusion = generate_equation_function!(heat_diffusion_user, f64);
-    let heat_diffusion_equations = Equation {
-        lhs: update_T,
-        rhs: heat_diffusion,
-    };
+    let heat_diffusion_equations =
+        generate_equation_structure!(update_T_user, heat_diffusion_user, f64);
     // define the boundary conditions
     let bc1 = BoundaryCondition(heat_dirichlet, dvector![300.]);
     let bc2 = BoundaryCondition(heat_neumann, dvector![0.]);

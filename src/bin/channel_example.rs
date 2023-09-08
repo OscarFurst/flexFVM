@@ -1,7 +1,7 @@
 use flex_fvm::{
     cell,
     equation::{BoundaryCondition, Equation},
-    mesh, solver,
+    generate_equation_structure, mesh, solver,
 };
 use nalgebra::{dvector, DVector, Matrix3, Vector3};
 use std::cell::Ref;
@@ -91,25 +91,15 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
     air.u = Vector3::new(1., 0., 0.);
     let n_grid = (1000, 30, 1);
     let mut block = mesh::Mesh::new();
+    let mass_eq = generate_equation_structure!(update_rho, euler_mass, f64);
+    let impulse_eq = generate_equation_structure!(update_impulse, euler_impulse, Vector3<f64>);
+    let energy_eq = generate_equation_structure!(update_energy, euler_energy, f64);
     block.add_layer(
         (0., 0., 0.),
         (10., 0.3, 0.01),
         n_grid,
         boundary_conditions,
-        vec![
-            Equation {
-                lhs: update_rho,
-                rhs: euler_mass,
-            },
-            Equation {
-                lhs: update_impulse,
-                rhs: euler_impulse,
-            },
-            Equation {
-                lhs: update_energy,
-                rhs: euler_energy,
-            },
-        ],
+        vec![mass_eq, impulse_eq, energy_eq],
         air,
         air,
     );
@@ -131,11 +121,11 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
 // and p = (gamma - 1) * rho * e
 
 #[allow(non_snake_case)]
-pub fn update_rho(p: &mut Properties, rho: &DVector<f64>) {
-    p.rho = rho[0];
+pub fn update_rho(p: &mut Properties, rho: f64) {
+    p.rho = rho;
 }
 
-pub fn euler_mass(p: &Ref<cell::Cell<Properties>>) -> DVector<f64> {
+pub fn euler_mass(p: &Ref<cell::Cell<Properties>>) -> f64 {
     // mass conservation equation
     // d(rho)/dt + div(rho * u) = 0
     let mut convective_flux = 0.;
@@ -145,19 +135,19 @@ pub fn euler_mass(p: &Ref<cell::Cell<Properties>>) -> DVector<f64> {
         let u_avg: Vector3<f64> = (p.properties.u + n.properties.u) / 2.;
         convective_flux -= (rho_avg * u_avg).dot(&f.n) * f.area;
     }
-    dvector![convective_flux]
+    convective_flux
 }
 
-pub fn update_impulse(p: &mut Properties, rho_u: &DVector<f64>) {
+pub fn update_impulse(p: &mut Properties, rho_u: &Vector3<f64>) {
     p.rho_u[0] = rho_u[0];
     p.rho_u[1] = rho_u[1];
     p.rho_u[2] = rho_u[2];
 }
 
-pub fn euler_impulse(p: &Ref<cell::Cell<Properties>>) -> DVector<f64> {
+pub fn euler_impulse(p: &Ref<cell::Cell<Properties>>) -> Vector3<f64> {
     // momentum conservation equation
     // d(rho*u)/dt + div(rho * u x u + p * I) = 0
-    let mut convective_flux = dvector![0., 0., 0.];
+    let mut convective_flux = Vector3::from_vec(vec![0., 0., 0.]);
     for f in p.faces.iter() {
         let n = f.neighbour();
         let rho_avg = (p.properties.rho + n.properties.rho) / 2.;
@@ -173,12 +163,12 @@ pub fn euler_impulse(p: &Ref<cell::Cell<Properties>>) -> DVector<f64> {
 }
 
 #[allow(non_snake_case)]
-pub fn update_energy(p: &mut Properties, E: &DVector<f64>) {
-    p.E = E[0];
+pub fn update_energy(p: &mut Properties, E: f64) {
+    p.E = E;
 }
 
 #[allow(non_snake_case)]
-pub fn euler_energy(p: &Ref<cell::Cell<Properties>>) -> DVector<f64> {
+pub fn euler_energy(p: &Ref<cell::Cell<Properties>>) -> f64 {
     // energy conservation equation
     // d(E) + div(u * (E + p)) = 0
     let mut convective_flux = 0.;
@@ -189,7 +179,7 @@ pub fn euler_energy(p: &Ref<cell::Cell<Properties>>) -> DVector<f64> {
         let u_avg: Vector3<f64> = (p.properties.u + n.properties.u) / 2.;
         convective_flux -= (u_avg * (E_avg + p_avg)).dot(&f.n) * f.area;
     }
-    dvector![convective_flux]
+    convective_flux
 }
 
 pub fn euler_inlet(p: &mut Properties, _faces: &[cell::Face<Properties>], data: &DVector<f64>) {
