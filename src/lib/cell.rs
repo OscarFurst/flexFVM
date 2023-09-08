@@ -23,7 +23,6 @@ pub struct Cell<T: HasProperties> {
 }
 
 pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
-    const N_VARIABLES: usize; // number of variables in the equation
     fn update(&mut self); // this function only updates derived variables, computed variables are updated by the equations
 }
 

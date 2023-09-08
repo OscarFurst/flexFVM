@@ -1,8 +1,8 @@
 use debug_cell::Ref;
 use flex_fvm::{
     cell::{self, HasProperties},
-    equation::{BoundaryCondition, Equation},
-    mesh, solver,
+    equation::*,
+    generate_equation_function, generate_update_function, mesh, solver,
 };
 use nalgebra::{dvector, DVector};
 use std::fmt;
@@ -35,10 +35,8 @@ impl fmt::Debug for Properties {
 }
 
 impl HasProperties for Properties {
-    const N_VARIABLES: usize = 1;
     fn update(&mut self) {
-        // x contains the solution of the equations
-        // the other variables may also be updated here
+        // here we can update derived variables if needed
     }
 }
 
@@ -56,7 +54,12 @@ pub fn copper() -> Properties {
     }
 }
 
+#[allow(non_snake_case)]
 pub fn create_mesh() -> mesh::Mesh<Properties> {
+    // todo : add a macro that wraps all that into an "Equation" struct
+    let update_T = generate_update_function!(update_T_user, f64);
+    let heat_diffusion = generate_equation_function!(heat_diffusion_user, f64);
+    // define the boundary conditions
     let bc1 = BoundaryCondition(heat_dirichlet, dvector![300.]);
     let bc2 = BoundaryCondition(heat_neumann, dvector![0.]);
     let bc3 = BoundaryCondition(heat_dirichlet, dvector![0.]);
@@ -113,17 +116,17 @@ pub fn create_mesh() -> mesh::Mesh<Properties> {
 /// Heat diffusion equation ///
 ///////////////////////////////
 #[allow(non_snake_case)]
-pub fn update_T(p: &mut Properties, T: &DVector<f64>) {
-    p.T = T[0];
+pub fn update_T_user(p: &mut Properties, T: f64) {
+    p.T = T;
 }
 
-pub fn heat_diffusion(p: &Ref<cell::Cell<Properties>>) -> DVector<f64> {
+pub fn heat_diffusion_user(p: &Ref<cell::Cell<Properties>>) -> f64 {
     let mut flux = 0.;
     for f in p.faces.iter() {
         let n = f.neighbour();
         flux -= p.properties.lambda * (p.properties.T - n.properties.T) / f.distance * f.area;
     }
-    dvector![flux / p.volume / p.properties.rho / p.properties.cp]
+    flux / p.volume / p.properties.rho / p.properties.cp
 }
 
 #[allow(non_snake_case, unused_variables)]
