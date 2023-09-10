@@ -1,55 +1,90 @@
 use crate::cell;
-use debug_cell::Ref;
+use crate::cell::HasProperties;
+use nalgebra::DVector;
+use std::cell::Ref;
 
-#[derive(Clone, Copy)]
-pub struct BoundaryCondition(pub fn(&mut cell::Properties, &[cell::Face], f64), pub f64);
-
-#[derive(Clone, Copy)]
-pub struct Equation(
-    pub fn(&mut cell::Properties, f64),
-    pub fn(&Ref<cell::Cell>) -> f64,
+#[derive(Clone)]
+pub struct BoundaryCondition<T: HasProperties>(
+    pub fn(&mut T, &[cell::Face<T>], &DVector<f64>),
+    pub DVector<f64>,
 );
 
-///////////////////////////////
-/// Heat diffusion equation ///
-///////////////////////////////
-#[allow(non_snake_case)]
-pub fn update_T(p: &mut cell::Properties, T: f64) {
-    p.T = T;
+// An Equation is a combination of a
+#[derive(Clone, Copy)]
+pub struct Equation<T: HasProperties> {
+    pub get: fn(&T) -> DVector<f64>,
+    pub lhs: fn(&mut T, &DVector<f64>),
+    pub rhs: fn(&Ref<cell::Cell<T>>) -> DVector<f64>,
+    pub dimension: usize,
 }
 
-pub fn heat_convection_diffusion(p: &Ref<cell::Cell>) -> f64 {
-    let mut diffusive_flux = 0.;
-    let mut convective_flux = 0.;
-    for f in p.faces.iter() {
-        let n = f.neighbour();
-        diffusive_flux -= p.properties.D * (p.properties.T - n.properties.T) / f.distance * f.area;
-        convective_flux -=
-            ((p.properties.h() + n.properties.h()) * (p.properties.u + n.properties.u) / 4.)
-                .dot(&f.n)
-                * f.area;
-    }
-    (diffusive_flux + convective_flux) / p.volume / p.properties.rho / p.properties.cp
+#[macro_export]
+macro_rules! generate_equation_structure {
+    ($get_function:ident, $update_function:ident, $equation_function:ident, 1) => {
+        Equation {
+            get: flex_fvm::generate_get_function!($get_function, 1),
+            lhs: flex_fvm::generate_update_function!($update_function, 1),
+            rhs: flex_fvm::generate_equation_function!($equation_function, 1),
+            dimension: 1,
+        }
+    };
+    ($get_function:ident, $update_function:ident, $equation_function:ident, $SomeType:expr) => {
+        Equation {
+            get: flex_fvm::generate_get_function!($get_function, $SomeType),
+            lhs: flex_fvm::generate_update_function!($update_function, $SomeType),
+            rhs: flex_fvm::generate_equation_function!($equation_function, $SomeType),
+            dimension: $SomeType,
+        }
+    };
 }
 
-pub fn heat_diffusion(p: &Ref<cell::Cell>) -> f64 {
-    let mut flux = 0.;
-    for f in p.faces.iter() {
-        let n = f.neighbour();
-        flux -= p.properties.lambda * (p.properties.T - n.properties.T) / f.distance * f.area;
-    }
-    flux / p.volume / p.properties.rho / p.properties.cp
+#[macro_export]
+macro_rules! generate_get_function {
+    // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
+    // into a function that operates on a DVector<f64>, which is used by the solver
+    ($user_get_function:ident, 1) => {
+        |p: &Properties| -> DVector<f64> { dvector![$user_get_function(p)] }
+            as fn(&Properties) -> DVector<f64>
+    };
+    ($user_get_function:ident, $SomeType:expr) => {
+        |p: &Properties| -> DVector<f64> {
+            nalgebra::DVector::from_vec($user_get_function(p).as_slice().to_vec()) // TODO : this might be slow as heck
+        } as fn(&Properties) -> DVector<f64>
+    };
 }
 
-#[allow(non_snake_case, unused_variables)]
-pub fn heat_dirichlet(p: &mut cell::Properties, faces: &[cell::Face], T: f64) {
-    p.T = T;
+#[macro_export]
+macro_rules! generate_update_function {
+    // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
+    // into a function that operates on a DVector<f64>, which is used by the solver
+    ($user_update_function:ident, 1) => {
+        |p: &mut Properties, v2: &DVector<f64>| -> () {
+            let v1: f64 = v2[0];
+            $user_update_function(p, v1);
+        } as fn(&mut Properties, &DVector<f64>)
+    };
+    ($user_update_function:ident, $SomeType:expr) => {
+        |p: &mut Properties, v2: &DVector<f64>| -> () {
+            let v1: nalgebra::SVector<f64, $SomeType> = nalgebra::SVector::from_vec(v2.as_slice().to_vec()); // TODO : this might be slow as heck
+            $user_update_function(p, &v1);
+        } as fn(&mut Properties, &DVector<f64>);
+    };
 }
 
-#[allow(non_snake_case)]
-pub fn heat_neumann(p: &mut cell::Properties, faces: &[cell::Face], dTdx: f64) {
-    let n = faces[0].neighbour();
-    let mut boundary_value = n.properties.T;
-    boundary_value += dTdx * faces[0].distance;
-    p.T = boundary_value;
+#[macro_export]
+macro_rules! generate_equation_function {
+    // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
+    // into a function that operates on a DVector<f64>, which is used by the solver
+    ($user_equation_function:ident, 1) => {
+        |p: &Ref<cell::Cell<Properties>>| -> DVector<f64> {
+            let v1: f64 = $user_equation_function(p);
+            dvector![v1]
+        } as fn(&Ref<cell::Cell<Properties>>) -> DVector<f64>
+    };
+    ($user_equation_function:ident, $SomeType:expr) => {
+        |p: &Ref<cell::Cell<Properties>>| -> DVector<f64> {
+            let v1: nalgebra::SVector<f64, $SomeType> = $user_equation_function(p);
+            DVector::from_vec(v1.as_slice().to_vec())
+        } as fn(&Ref<cell::Cell<Properties>>) -> DVector<f64>;
+    };
 }

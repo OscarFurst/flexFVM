@@ -20,3 +20,28 @@ for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too l
 
 Optimizing new equation system ('Properties' to use references instead of clones) :
 for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 298 ms, 317 ms, 306 ms (release)
+
+Custom data structure defined by lib user :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 303 ms, 249 ms, 273 ms (release)
+
+Update properties using the LHS equation :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 299 ms, 299 ms, 280 ms (release)
+
+Equations process vectors<f64> instead of f64 :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 817 ms, 868 ms, 830 ms (release)
+the stop_criterial function accounts for approx 200ms, that should be reduced
+
+Equations process nalgebra::DVectors<f64> instead of vectors<f64> :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : way too long (debug) - 724 ms, 817 ms, 863 ms (release)
+
+Optimize meshing and other minor changes :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : not using that anymore - 616 ms, 685 ms, 612 ms (release)
+meshing of copper case (12560 cells) : 2314 ms, 2275 ms, 2255 ms
+
+Switch from tuple equation structure to "normal" structure :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : not using that anymore - 607 ms, 564 ms, 579 ms (release)
+meshing of copper case (12560 cells) : not representative
+
+Implementing getter function :
+for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : not using that anymore - 559 ms, 566 ms, 649 ms (release)
+meshing of copper case (12560 cells) : 2496 ms, 2243 ms, 2291 ms
