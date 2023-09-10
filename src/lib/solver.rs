@@ -1,5 +1,6 @@
 use crate::cell::HasProperties;
 use crate::mesh;
+use indicatif::ProgressBar;
 use nalgebra::DVector;
 use std::time::Instant;
 
@@ -11,7 +12,10 @@ pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64
     // x contains the initial solution
     let mut x = initial_mesh.get_state();
     let start = Instant::now();
+    println!("👩‍🔬 Solving ...");
+    let pb = ProgressBar::new((t_end / h0) as u64);
     while t < t_end {
+        pb.inc(1);
         mesh.update(&x);
         let y = mesh.setup_equations(&t, &x);
         for i in 0..x.len() {
@@ -25,6 +29,7 @@ pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64
         t += h0;
         it += 1;
     }
+    pb.finish();
     let duration = start.elapsed();
     println!(
         "Elapsed time : {} ms. Iterations : {}",

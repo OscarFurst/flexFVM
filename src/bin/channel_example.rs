@@ -76,7 +76,7 @@ pub fn air() -> Properties {
 ///////////////////
 
 pub fn create_mesh() -> mesh::Mesh<Properties> {
-    let bc1 = BoundaryCondition(euler_inlet, dvector![1.3, 1., 0., 0., 100_000.]);
+    let bc1 = BoundaryCondition(euler_inlet, dvector![1.3, 1.1, 0., 0., 100_000.]);
     let bc2 = BoundaryCondition(euler_wall, dvector![0.]);
     let bc3 = BoundaryCondition(euler_fully_developed, dvector![0.]);
     let boundary_conditions: [Vec<BoundaryCondition<Properties>>; 6] = [

@@ -2,6 +2,7 @@
 use crate::cell::CellType::*;
 use crate::cell::*;
 use crate::equation::{BoundaryCondition, Equation};
+use indicatif::ProgressBar;
 use nalgebra::{DVector, Point3, Vector3};
 use std::{cell::RefCell, fmt, rc::Rc};
 
@@ -89,7 +90,10 @@ impl<T: HasProperties> Layer<T> {
     pub fn link(self) -> Self {
         // compare cells two by two
         let n_cells = self.cells.len();
+        println!("🔗 Linking cells ...");
+        let pb = ProgressBar::new(n_cells as u64);
         for i in 0..n_cells {
+            pb.inc(1);
             let cell = &self.cells[i];
             for j in i + 1..n_cells {
                 let other_cell = &self.cells[j];
@@ -124,6 +128,7 @@ impl<T: HasProperties> Layer<T> {
                 }
             }
         }
+        pb.finish();
         self
     }
 
