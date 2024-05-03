@@ -1,4 +1,4 @@
-use crate::cell::{self, HasProperties};
+use crate::computational_cell::{self, HasProperties};
 use crate::equation;
 use crate::layer;
 use nalgebra::DVector;
@@ -24,6 +24,7 @@ impl<T: HasProperties> Mesh<T> {
         n
     }
 
+    /// adds a hexahedral layer of regular hexahedral cells
     pub fn add_layer(
         &mut self,
         r1: (f64, f64, f64),
@@ -58,11 +59,17 @@ impl<T: HasProperties> Mesh<T> {
                     continue;
                 }
                 for cell in layer.cells.iter() {
-                    if matches!(cell.borrow().variant, cell::CellType::Internal) {
+                    if matches!(
+                        cell.borrow().variant,
+                        computational_cell::CellType::Internal
+                    ) {
                         continue;
                     }
                     for other_cell in other_layer.cells.iter() {
-                        if matches!(other_cell.borrow().variant, cell::CellType::Internal) {
+                        if matches!(
+                            other_cell.borrow().variant,
+                            computational_cell::CellType::Internal
+                        ) {
                             continue;
                         }
                         let r = cell.borrow().faces[0].center;

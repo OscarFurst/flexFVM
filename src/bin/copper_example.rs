@@ -1,5 +1,5 @@
 use flex_fvm::{
-    cell::{self, HasProperties},
+    computational_cell::{self, HasProperties},
     equation::*,
     generate_equation_structure, mesh, solver,
 };
@@ -133,7 +133,7 @@ pub fn update_T_user(p: &mut Properties, T: f64) {
     p.T = T;
 }
 
-pub fn heat_diffusion_user(p: &Ref<cell::Cell<Properties>>) -> f64 {
+pub fn heat_diffusion_user(p: &Ref<computational_cell::ComputationalCell<Properties>>) -> f64 {
     let mut flux = 0.;
     for f in p.faces.iter() {
         let n = f.neighbour();
@@ -143,12 +143,20 @@ pub fn heat_diffusion_user(p: &Ref<cell::Cell<Properties>>) -> f64 {
 }
 
 #[allow(non_snake_case, unused_variables)]
-pub fn heat_dirichlet(p: &mut Properties, faces: &[cell::Face<Properties>], T: &DVector<f64>) {
+pub fn heat_dirichlet(
+    p: &mut Properties,
+    faces: &[computational_cell::Face<Properties>],
+    T: &DVector<f64>,
+) {
     p.T = T[0];
 }
 
 #[allow(non_snake_case)]
-pub fn heat_neumann(p: &mut Properties, faces: &[cell::Face<Properties>], dTdx: &DVector<f64>) {
+pub fn heat_neumann(
+    p: &mut Properties,
+    faces: &[computational_cell::Face<Properties>],
+    dTdx: &DVector<f64>,
+) {
     let n = faces[0].neighbour();
     let mut boundary_value = n.properties.T;
     boundary_value += dTdx[0] * faces[0].distance;

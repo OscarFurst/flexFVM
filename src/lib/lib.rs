@@ -1,4 +1,4 @@
-pub mod cell;
+pub mod computational_cell;
 pub mod equation;
 pub mod layer;
 pub mod mesh;

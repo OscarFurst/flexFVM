@@ -1,6 +1,6 @@
 // x,y,z coordinate system, x being left-to-right, y being back-to-front and z being bottom-to-top
-use crate::cell::CellType::*;
-use crate::cell::*;
+use crate::computational_cell::CellType::*;
+use crate::computational_cell::*;
 use crate::equation::{BoundaryCondition, Equation};
 use indicatif::ProgressBar;
 use nalgebra::{DVector, Point3, Vector3};
@@ -8,7 +8,7 @@ use std::{cell::RefCell, fmt, rc::Rc};
 
 #[derive(Clone)]
 pub struct Layer<T: HasProperties> {
-    pub cells: Vec<Rc<RefCell<Cell<T>>>>,
+    pub cells: Vec<Rc<RefCell<ComputationalCell<T>>>>,
     pub boundaries: [(Point3<f64>, Vector3<f64>, Vec<BoundaryCondition<T>>); 6],
     equations: Vec<Equation<T>>,
 }
@@ -58,7 +58,7 @@ impl<T: HasProperties> Layer<T> {
         for i in 0..nx {
             for j in 0..ny {
                 for k in 0..nz {
-                    let mut cell = Cell {
+                    let mut cell = ComputationalCell {
                         variant: CellType::Internal,
                         properties: internal_props,
                         ..Default::default()
@@ -73,8 +73,12 @@ impl<T: HasProperties> Layer<T> {
                     for (point, normal, bc) in &boundaries {
                         if let Some(face) = cell.face_on_plane(point, normal) {
                             // search for corresponding boundary condition
-                            let mut boundary_cell =
-                                Cell::boundary_from_cell(&cell, normal, face, bc.clone());
+                            let mut boundary_cell = ComputationalCell::boundary_from_cell(
+                                &cell,
+                                normal,
+                                face,
+                                bc.clone(),
+                            );
                             boundary_cell.properties = boundary_props;
                             mesh.cells.push(Rc::new(RefCell::new(boundary_cell)));
                         }

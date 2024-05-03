@@ -10,7 +10,7 @@ use crate::equation;
 ///////////////////////////
 
 #[allow(non_snake_case)]
-pub struct Cell<T: HasProperties> {
+pub struct ComputationalCell<T: HasProperties> {
     // geometric properties
     pub r: Point3<f64>, // m
     pub volume: f64,    // m3
@@ -25,7 +25,7 @@ pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
     fn update(&mut self); // this function only updates derived variables, computed variables are updated by the equations
 }
 
-impl<T: HasProperties> Cell<T> {
+impl<T: HasProperties> ComputationalCell<T> {
     pub fn create_rectangle(
         &mut self,
         origin: Point3<f64>,
@@ -66,14 +66,14 @@ impl<T: HasProperties> Cell<T> {
     }
 
     pub fn boundary_from_cell(
-        cell: &Cell<T>,
+        cell: &ComputationalCell<T>,
         normal: &Vector3<f64>,
         face: &Face<T>,
         bc: Vec<equation::BoundaryCondition<T>>,
-    ) -> Cell<T> {
+    ) -> ComputationalCell<T> {
         // creates a new "boundary cell" from the provided internal cell
         // the boundary condition is not linked to the cell after the function, it needs to be done when linking the cells
-        let boundary_cell = Cell {
+        let boundary_cell = ComputationalCell {
             r: cell.r + normal,
             volume: cell.volume,
             vertices: Vec::from_iter(cell.vertices.iter().map(|v| v + normal)),
@@ -85,15 +85,15 @@ impl<T: HasProperties> Cell<T> {
     }
 }
 
-impl<T: HasProperties> fmt::Debug for Cell<T> {
+impl<T: HasProperties> fmt::Debug for ComputationalCell<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.properties.fmt(f)
     }
 }
 
-impl<T: HasProperties> Default for Cell<T> {
+impl<T: HasProperties> Default for ComputationalCell<T> {
     fn default() -> Self {
-        Cell {
+        ComputationalCell {
             r: Point3::new(0., 0., 0.),
             vertices: Vec::new(),
             volume: 0.,
@@ -113,7 +113,7 @@ pub struct Face<T: HasProperties> {
     pub vertices: Vec<Point3<f64>>,
     pub center: Point3<f64>,
     pub area: f64,
-    pub neighbour: Option<Rc<RefCell<Cell<T>>>>,
+    pub neighbour: Option<Rc<RefCell<ComputationalCell<T>>>>,
     pub n: Vector3<f64>,
     pub distance: f64,
 }
@@ -153,7 +153,7 @@ impl<T: HasProperties> Face<T> {
         self.vertices[index_of_min.unwrap()]
     }
 
-    pub fn neighbour(&self) -> Ref<Cell<T>> {
+    pub fn neighbour(&self) -> Ref<ComputationalCell<T>> {
         self.neighbour.as_ref().unwrap().borrow()
     }
 }

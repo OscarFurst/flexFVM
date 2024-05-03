@@ -1,4 +1,4 @@
-use crate::cell::HasProperties;
+use crate::computational_cell::HasProperties;
 use crate::mesh;
 use indicatif::ProgressBar;
 use nalgebra::DVector;

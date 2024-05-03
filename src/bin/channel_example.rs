@@ -1,5 +1,5 @@
 use flex_fvm::{
-    cell,
+    computational_cell,
     equation::{BoundaryCondition, Equation},
     generate_equation_structure, mesh, solver,
 };
@@ -47,7 +47,7 @@ impl fmt::Debug for Properties {
     }
 }
 
-impl cell::HasProperties for Properties {
+impl computational_cell::HasProperties for Properties {
     fn update(&mut self) {
         self.u = self.rho_u / self.rho;
         self.e = self.E / self.rho - 1. / 2. * self.u.dot(&self.u);
@@ -128,7 +128,7 @@ pub fn update_rho(p: &mut Properties, rho: f64) {
     p.rho = rho;
 }
 
-pub fn euler_mass(p: &Ref<cell::Cell<Properties>>) -> f64 {
+pub fn euler_mass(p: &Ref<computational_cell::ComputationalCell<Properties>>) -> f64 {
     // mass conservation equation
     // d(rho)/dt + div(rho * u) = 0
     let mut convective_flux = 0.;
@@ -151,7 +151,7 @@ pub fn update_impulse(p: &mut Properties, rho_u: &Vector3<f64>) {
     p.rho_u[2] = rho_u[2];
 }
 
-pub fn euler_impulse(p: &Ref<cell::Cell<Properties>>) -> Vector3<f64> {
+pub fn euler_impulse(p: &Ref<computational_cell::ComputationalCell<Properties>>) -> Vector3<f64> {
     // momentum conservation equation
     // d(rho*u)/dt + div(rho * u x u + p * I) = 0
     let mut convective_flux = Vector3::from_vec(vec![0., 0., 0.]);
@@ -180,7 +180,7 @@ pub fn update_energy(p: &mut Properties, E: f64) {
 }
 
 #[allow(non_snake_case)]
-pub fn euler_energy(p: &Ref<cell::Cell<Properties>>) -> f64 {
+pub fn euler_energy(p: &Ref<computational_cell::ComputationalCell<Properties>>) -> f64 {
     // energy conservation equation
     // d(E) + div(u * (E + p)) = 0
     let mut convective_flux = 0.;
@@ -194,7 +194,11 @@ pub fn euler_energy(p: &Ref<cell::Cell<Properties>>) -> f64 {
     convective_flux
 }
 
-pub fn euler_inlet(p: &mut Properties, _faces: &[cell::Face<Properties>], data: &DVector<f64>) {
+pub fn euler_inlet(
+    p: &mut Properties,
+    _faces: &[computational_cell::Face<Properties>],
+    data: &DVector<f64>,
+) {
     // this is the inlet boundary condition, where every quantity is known
     // data = [rho, u, v, w, p]
     p.rho = data[0];
@@ -205,7 +209,11 @@ pub fn euler_inlet(p: &mut Properties, _faces: &[cell::Face<Properties>], data: 
         + 1. / 2. * p.rho * (data[1].powi(2) + data[2].powi(2) + data[3].powi(2));
 }
 
-pub fn euler_wall(p: &mut Properties, faces: &[cell::Face<Properties>], _data: &DVector<f64>) {
+pub fn euler_wall(
+    p: &mut Properties,
+    faces: &[computational_cell::Face<Properties>],
+    _data: &DVector<f64>,
+) {
     // this is the impermeable wall boundary condition. The wall is normal to the face
     let n = faces[0].neighbour().properties;
     let normal = faces[0].n;
@@ -216,7 +224,7 @@ pub fn euler_wall(p: &mut Properties, faces: &[cell::Face<Properties>], _data: &
 
 pub fn euler_fully_developed(
     p: &mut Properties,
-    faces: &[cell::Face<Properties>],
+    faces: &[computational_cell::Face<Properties>],
     _data: &DVector<f64>,
 ) {
     // this is the fully developed boundary condition, where the flow is assumed to not change in the normal direction
