@@ -1,160 +1,100 @@
-use crate::computational_cell::{self, HasProperties};
-use crate::equation;
-use crate::layer;
-use nalgebra::DVector;
-use std::fmt;
-use std::rc::Rc;
+use crate::computational_cell::{ComputationalCell, Face, HasProperties};
+use nalgebra::{DVector, Point3, Vector3};
 
+/// The mesh owns all geometrical features:
+/// - vertices: points in space at the corners of computational cells
+/// - faces: the faces of the computational cells
+/// - computational cells
 #[derive(Clone)]
 pub struct Mesh<T: HasProperties> {
-    layers: Vec<layer::Layer<T>>,
+    pub vertices: Vec<Point3<f64>>,
+    pub faces: Vec<Face>,
+    pub cells: Vec<ComputationalCell<T>>,
 }
 
 impl<T: HasProperties> Mesh<T> {
     pub fn new() -> Self {
-        Mesh { layers: Vec::new() }
+        Mesh {
+            vertices: Vec::new(),
+            faces: Vec::new(),
+            cells: Vec::new(),
+        }
     }
 
     pub fn n_cells(&self) -> usize {
         // returns the total number of cells in the domain
-        let mut n = 0;
-        for layer in self.layers.iter() {
-            n += layer.cells.len();
-        }
-        n
+        self.cells.len()
     }
 
-    /// adds a hexahedral layer of regular hexahedral cells
-    pub fn add_layer(
-        &mut self,
-        r1: (f64, f64, f64),
-        r2: (f64, f64, f64),
-        (nx, ny, nz): (usize, usize, usize),
-        bc: [Vec<equation::BoundaryCondition<T>>; 6],
-        equations: Vec<equation::Equation<T>>,
-        internal_props: T,
-        boundary_props: T,
-    ) {
-        self.layers.push(
-            layer::Layer::generate(
-                r1,
-                r2,
-                (nx, ny, nz),
-                bc,
-                equations,
-                internal_props,
-                boundary_props,
-            )
-            .link(),
-        );
-        self.join_layers();
-    }
-
-    fn join_layers(&self) {
-        // searches 'Boundary' cells inside of the domain, eliminates them and links their corresponding internal cells together
-        let mut to_pop = vec![];
-        for layer in self.layers.iter() {
-            for other_layer in self.layers.iter() {
-                if std::ptr::eq(layer, other_layer) {
-                    continue;
-                }
-                for cell in layer.cells.iter() {
-                    if matches!(
-                        cell.borrow().variant,
-                        computational_cell::CellType::Internal
-                    ) {
-                        continue;
-                    }
-                    for other_cell in other_layer.cells.iter() {
-                        if matches!(
-                            other_cell.borrow().variant,
-                            computational_cell::CellType::Internal
-                        ) {
-                            continue;
+    pub fn add_hex_cell(&mut self, r1: Point3<f64>, r2: Point3<f64>, properties: T) -> usize {
+        // create central node if it does not exist, or get the index of the existing one
+        let node_index = match self
+            .nodes
+            .iter()
+            .position(|n| (r1 + (r2 - r1) / 2. - n).norm() < f64::EPSILON)
+        {
+            Some(index) => index,
+            None => {
+                let node_index = self.nodes.len();
+                self.nodes.push(r1 + (r2 - r1) / 2.);
+                node_index
+            }
+        };
+        // create vertices if they do not exist, else retrieve their index
+        let mut current_vertices = vec![];
+        let mut current_vertices_index = vec![];
+        for i in 0..2 {
+            for j in 0..2 {
+                for k in 0..2 {
+                    let r = Point3::new(
+                        r1[0] + i as f64 * (r2[0] - r1[0]),
+                        r1[1] + j as f64 * (r2[1] - r1[1]),
+                        r1[2] + k as f64 * (r2[2] - r1[2]),
+                    );
+                    current_vertices.push(r);
+                    // it this vertex exists, find its index
+                    let vertex_index = match self
+                        .vertices
+                        .iter()
+                        .position(|v| (r - v).norm() < f64::EPSILON)
+                    {
+                        Some(index) => index,
+                        None => {
+                            let vertex_index = self.vertices.len();
+                            self.vertices.push(r);
+                            vertex_index
                         }
-                        let r = cell.borrow().faces[0].center;
-                        if (r - other_cell.borrow().faces[0].center).norm() < f64::EPSILON {
-                            // we found a pair
-                            // make copies of the cells they are pointing to
-                            let cell_ref =
-                                Rc::clone(cell.borrow().faces[0].neighbour.as_ref().unwrap());
-                            let other_cell_ref =
-                                Rc::clone(other_cell.borrow().faces[0].neighbour.as_ref().unwrap());
-                            let other_cell_ref_givaway =
-                                Rc::clone(other_cell.borrow().faces[0].neighbour.as_ref().unwrap());
-                            let dr = other_cell_ref.borrow().r - cell_ref.borrow().r;
-                            {
-                                // limits lifetime of borrowed_cell
-                                let mut borrowed_cell = cell_ref.borrow_mut();
-                                let cell_face = borrowed_cell
-                                    .faces
-                                    .iter_mut()
-                                    .find(|f| (r - f.center).norm() < f64::EPSILON)
-                                    .unwrap(); // found the right face
-                                cell_face.neighbour = Some(other_cell_ref_givaway);
-                                cell_face.n = dr / dr.norm();
-                                cell_face.distance = dr.norm();
-                            }
-                            {
-                                // limits lifetime of other_borrowed_cell
-                                let mut other_borrowed_cell = other_cell_ref.borrow_mut();
-                                let other_cell_face = other_borrowed_cell
-                                    .faces
-                                    .iter_mut()
-                                    .find(|f| (r - f.center).norm() < f64::EPSILON)
-                                    .unwrap(); // found the right face
-                                other_cell_face.neighbour = Some(cell_ref);
-                                other_cell_face.n = -dr / dr.norm();
-                                other_cell_face.distance = dr.norm();
-                            }
-                        }
-                        to_pop.push(Rc::clone(cell));
-                        to_pop.push(Rc::clone(other_cell));
-                    }
+                    };
+                    current_vertices_index.push(vertex_index);
                 }
             }
         }
+
+        let cell_index = self.cells.len();
+        self.cells.push(ComputationalCell::create_rectangle(
+            node_index,
+            current_vertices_index,
+            current_vertices,
+            properties,
+        ));
+        cell_index
     }
 
-    pub fn get_state(&self) -> Vec<DVector<f64>> {
-        // returns the current state of the mesh
-        let mut x: Vec<DVector<f64>> = Vec::with_capacity(self.n_cells());
-        for layer in self.layers.iter() {
-            x.append(&mut layer.get_state());
-        }
-        x
-    }
-
-    pub fn setup_equations(&self, _t: &f64, _x: &[DVector<f64>]) -> Vec<DVector<f64>> {
-        let mut y = vec![];
-        for layer in self.layers.iter() {
-            y.append(&mut layer.equations());
-        }
-        y
-    }
-
-    pub fn update(&mut self, x: &[DVector<f64>]) {
-        // takes the solution and updates every cell with it
-        for (i, layer) in self.layers.iter().enumerate() {
-            let n = layer.n_eq();
-            layer.update(&x[i * n..(i + 1) * n]);
-        }
-        self.enforce_boundary_conditions();
-    }
-
-    pub fn enforce_boundary_conditions(&mut self) {
-        for layer in self.layers.iter() {
-            layer.boundary_conditions();
-        }
-    }
-}
-
-impl<T: HasProperties> fmt::Debug for Mesh<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for layer in self.layers.iter() {
-            write!(f, "{:?}", layer)?
-        }
-        write!(f, " ")
+    pub fn get_face_on_plane(
+        &mut self,
+        point: Point3<f64>,
+        normal: Vector3<f64>,
+        cell_index: usize,
+    ) -> Option<&mut Face> {
+        // find the face that is on the plane defined by the point and normal
+        let cell = &mut self.cells[cell_index];
+        cell.faces.iter_mut().find(|f| {
+            let mut scalar_vec = Vec::new();
+            for id in f.vertices.iter() {
+                scalar_vec.push(normal.dot(&(self.vertices[*id] - point)))
+            }
+            DVector::from_vec(scalar_vec).norm() < f64::EPSILON
+        })
     }
 }
 
@@ -163,37 +103,3 @@ impl<T: HasProperties> Default for Mesh<T> {
         Mesh::new()
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use crate::{equation, materials, mesh};
-//     #[test]
-//     fn test_generation() {
-//         let bc1 = equation::BoundaryCondition(equation::heat_dirichlet, 300.);
-//         let bc2 = equation::BoundaryCondition(equation::heat_neumann, 0.);
-//         let bc3 = equation::BoundaryCondition(equation::heat_dirichlet, 0.);
-//         let boundary_conditions: [Vec<equation::BoundaryCondition>; 6] = [
-//             vec![bc1],
-//             vec![bc2],
-//             vec![bc2],
-//             vec![bc3],
-//             vec![bc2],
-//             vec![bc2],
-//         ];
-//         let (nx, ny, nz) = (3, 1, 1);
-//         let mut block: mesh::Mesh;
-//         block = mesh::Mesh::new();
-//         block.add_layer(
-//             (0., 0., 0.),
-//             (1., 1., 1.),
-//             (nx, ny, nz),
-//             boundary_conditions,
-//             vec![equation::Equation(
-//                 equation::update_T,
-//                 equation::heat_diffusion,
-//             )],
-//             materials::copper(),
-//             materials::copper(),
-//         );
-//     }
-// }

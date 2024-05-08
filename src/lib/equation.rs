@@ -1,11 +1,11 @@
 use crate::computational_cell;
-use crate::computational_cell::HasProperties;
+use crate::computational_cell::{ComputationalCell, HasProperties};
+use crate::mesh::Mesh;
 use nalgebra::DVector;
-use std::cell::Ref;
 
 #[derive(Clone)]
 pub struct BoundaryCondition<T: HasProperties>(
-    pub fn(&mut T, &[computational_cell::Face<T>], &DVector<f64>),
+    pub fn(&mut T, &computational_cell::Face, &DVector<f64>),
     pub DVector<f64>,
 );
 
@@ -14,7 +14,7 @@ pub struct BoundaryCondition<T: HasProperties>(
 pub struct Equation<T: HasProperties> {
     pub get: fn(&T) -> DVector<f64>,
     pub lhs: fn(&mut T, &DVector<f64>),
-    pub rhs: fn(&Ref<computational_cell::ComputationalCell<T>>) -> DVector<f64>,
+    pub rhs: fn(&Vec<ComputationalCell<T>>, &usize) -> DVector<f64>,
     pub dimension: usize,
 }
 
@@ -76,15 +76,16 @@ macro_rules! generate_equation_function {
     // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
     // into a function that operates on a DVector<f64>, which is used by the solver
     ($user_equation_function:ident, 1) => {
-        |p: &Ref<computational_cell::ComputationalCell<Properties>>| -> DVector<f64> {
-            let v1: f64 = $user_equation_function(p);
+        |m: &Vec<computational_cell::ComputationalCell<Properties>>, p: &usize| -> DVector<f64> {
+            let v1: f64 = $user_equation_function(m, p);
             dvector![v1]
-        } as fn(&Ref<computational_cell::ComputationalCell<Properties>>) -> DVector<f64>
+        } as fn(&Vec<computational_cell::ComputationalCell<Properties>>, &usize) -> DVector<f64>
     };
     ($user_equation_function:ident, $SomeType:expr) => {
-        |p: &Ref<computational_cell::ComputationalCell<Properties>>| -> DVector<f64> {
-            let v1: nalgebra::SVector<f64, $SomeType> = $user_equation_function(p);
+        |m: &Vec<computational_cell::ComputationalCell<Properties>>, p: &usize| -> DVector<f64> {
+            let v1: nalgebra::SVector<f64, $SomeType> = $user_equation_function(m, p);
             DVector::from_vec(v1.as_slice().to_vec())
-        } as fn(&Ref<computational_cell::ComputationalCell<Properties>>) -> DVector<f64>;
+        }
+            as fn(&Vec<computational_cell::ComputationalCell<Properties>>, &usize) -> DVector<f64>;
     };
 }

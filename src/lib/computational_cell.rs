@@ -1,7 +1,6 @@
 // for now all cells are rectangular parallelepipeds
 use nalgebra::{Point3, Vector3};
 use std::fmt;
-use std::{cell::Ref, cell::RefCell, rc::Rc};
 
 use crate::equation;
 
@@ -9,16 +8,22 @@ use crate::equation;
 /// CELL and PROPERTIES ///
 ///////////////////////////
 
+/// ComputationalCell is the main data structure of the mesh.
+/// It does not directly store its node and vertices, but instead
+/// stores their indices in the mesh.
+/// The face itself is stored in the cell because it is unique to
+/// the cell: the neighboring cell's face has a normal vector pointing
+/// in the opposite direction, for example.
 #[allow(non_snake_case)]
+#[derive(Clone)]
 pub struct ComputationalCell<T: HasProperties> {
     // geometric properties
-    pub r: Point3<f64>, // m
-    pub volume: f64,    // m3
-    pub vertices: Vec<Point3<f64>>,
-    pub variant: CellType<T>,
+    pub r: usize,    // m
+    pub volume: f64, // m3
+    pub vertices: Vec<usize>,
     pub properties: T,
     // faces of the volume
-    pub faces: Vec<Face<T>>,
+    pub faces: Vec<Face>,
 }
 
 pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
@@ -27,61 +32,53 @@ pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
 
 impl<T: HasProperties> ComputationalCell<T> {
     pub fn create_rectangle(
-        &mut self,
-        origin: Point3<f64>,
-        ex: Vector3<f64>,
-        ey: Vector3<f64>,
-        ez: Vector3<f64>,
-    ) {
-        // creates a rectangular parallelepiped
-        self.r = origin + ex / 2. + ey / 2. + ez / 2.;
-        self.volume = ex[0] * ey[1] * ez[2];
-        // values are not initialized by this function!
-        let vertices = vec![
-            origin,
-            origin + ex,
-            origin + ey,
-            origin + ez,
-            origin + ex + ey,
-            origin + ex + ez,
-            origin + ey + ez,
-            origin + ex + ey + ez,
-        ];
-        self.faces = vec![
-            Face::new(&vec![vertices[0], vertices[1], vertices[2], vertices[4]]), // south
-            Face::new(&vec![vertices[3], vertices[5], vertices[6], vertices[7]]), // north
-            Face::new(&vec![vertices[0], vertices[1], vertices[3], vertices[5]]), // close
-            Face::new(&vec![vertices[2], vertices[4], vertices[6], vertices[7]]), // far
-            Face::new(&vec![vertices[1], vertices[4], vertices[5], vertices[7]]), // east
-            Face::new(&vec![vertices[0], vertices[2], vertices[3], vertices[6]]), // west
-        ];
-        self.vertices = vertices;
-    }
-
-    pub fn face_on_plane(&self, point: &Point3<f64>, normal: &Vector3<f64>) -> Option<&Face<T>> {
-        // finds out if "self" has a face on a boudnary plane
-        self.faces
-            .iter()
-            .find(|&face| (face.center - point).dot(normal).abs() <= f64::EPSILON)
-    }
-
-    pub fn boundary_from_cell(
-        cell: &ComputationalCell<T>,
-        normal: &Vector3<f64>,
-        face: &Face<T>,
-        bc: Vec<equation::BoundaryCondition<T>>,
+        r: usize,
+        vertex_indices: Vec<usize>,
+        vertex_points: Vec<Point3<f64>>,
+        properties: T,
     ) -> ComputationalCell<T> {
-        // creates a new "boundary cell" from the provided internal cell
-        // the boundary condition is not linked to the cell after the function, it needs to be done when linking the cells
-        let boundary_cell = ComputationalCell {
-            r: cell.r + normal,
-            volume: cell.volume,
-            vertices: Vec::from_iter(cell.vertices.iter().map(|v| v + normal)),
-            variant: CellType::Boundary(bc),
-            faces: vec![face.clone()],
-            ..Default::default()
+        // compute volume from vertex points
+        let volume = {
+            let v1 = vertex_points[1] - vertex_points[0];
+            let v2 = vertex_points[2] - vertex_points[0];
+            let v3 = vertex_points[4] - vertex_points[0];
+            v1.dot(&v2.cross(&v3)).abs()
         };
-        boundary_cell
+        // create 6 faces of the volume from vertex points and indices
+        let faces = vec![
+            Face::new(
+                vec![vertex_indices[0], vertex_indices[1], vertex_indices[2]],
+                &vertex_points,
+            ),
+            Face::new(
+                vec![vertex_indices[0], vertex_indices[1], vertex_indices[4]],
+                &vertex_points,
+            ),
+            Face::new(
+                vec![vertex_indices[0], vertex_indices[2], vertex_indices[4]],
+                &vertex_points,
+            ),
+            Face::new(
+                vec![vertex_indices[1], vertex_indices[2], vertex_indices[4]],
+                &vertex_points,
+            ),
+            Face::new(
+                vec![vertex_indices[0], vertex_indices[3], vertex_indices[5]],
+                &vertex_points,
+            ),
+            Face::new(
+                vec![vertex_indices[1], vertex_indices[3], vertex_indices[5]],
+                &vertex_points,
+            ),
+        ];
+        let mut cell = ComputationalCell {
+            r,
+            volume,
+            vertices: vertex_indices,
+            properties,
+            faces,
+        };
+        cell
     }
 }
 
@@ -94,11 +91,10 @@ impl<T: HasProperties> fmt::Debug for ComputationalCell<T> {
 impl<T: HasProperties> Default for ComputationalCell<T> {
     fn default() -> Self {
         ComputationalCell {
-            r: Point3::new(0., 0., 0.),
+            r: usize::MAX,
             vertices: Vec::new(),
             volume: 0.,
             properties: T::default(),
-            variant: CellType::Internal,
             faces: Vec::new(),
         }
     }
@@ -107,73 +103,63 @@ impl<T: HasProperties> Default for ComputationalCell<T> {
 ////////////
 /// FACE ///
 ////////////
-
 #[derive(Clone)]
-pub struct Face<T: HasProperties> {
-    pub vertices: Vec<Point3<f64>>,
-    pub center: Point3<f64>,
-    pub area: f64,
-    pub neighbour: Option<Rc<RefCell<ComputationalCell<T>>>>,
-    pub n: Vector3<f64>,
-    pub distance: f64,
+pub enum NeighborType {
+    Internal(usize, f64),
+    Boundary(usize),
+    Nil,
 }
 
-impl<T: HasProperties> Face<T> {
-    fn new(vertices: &Vec<Point3<f64>>) -> Self {
+#[derive(Clone)]
+pub struct Face {
+    pub vertices: Vec<usize>,
+    pub center: Point3<f64>,
+    pub normal: Vector3<f64>,
+    pub area: f64,
+    pub owner: (usize, f64),
+    pub neighbor: NeighborType,
+}
+
+impl Face {
+    /// Creates a new face and initialize its basic geometrical properties.
+    /// The properties relating to the neighbour need to be initialized later.
+    fn new(vertices_indices: Vec<usize>, vertices_coordinates: &Vec<Point3<f64>>) -> Self {
         // TODO: only implemented for rectangle
-        let vects: Vector3<f64> = vertices.iter().map(|v| v.coords).sum(); // this is so ugly
-        let center: Point3<f64> = Point3::new(0., 0., 0.) + vects / vertices.len() as f64; // I just want to average...
+        // computing the center of the face
+        let vects: Vector3<f64> = vertices_coordinates.iter().map(|v| v.coords).sum(); // this is so ugly
+        let center: Point3<f64> =
+            Point3::new(0., 0., 0.) + vects / vertices_coordinates.len() as f64; // I just want to average...
         Face {
-            vertices: vertices.clone(),
+            vertices: vertices_indices,
             center,
             area: {
                 let mut area = 0.;
-                let v1 = vertices[1] - vertices[0];
-                for i in 2..vertices.len() {
-                    if v1.dot(&(vertices[i] - vertices[0])).abs() < f64::EPSILON {
-                        area = v1.cross(&(vertices[i] - vertices[0])).norm().abs()
+                let v1 = vertices_coordinates[1] - vertices_coordinates[0];
+                for i in 2..vertices_coordinates.len() {
+                    if v1
+                        .dot(&(vertices_coordinates[i] - vertices_coordinates[0]))
+                        .abs()
+                        < f64::EPSILON
+                    {
+                        area = v1
+                            .cross(&(vertices_coordinates[i] - vertices_coordinates[0]))
+                            .norm()
+                            .abs()
                     }
                 }
                 area
             },
-            neighbour: None,
+            neighbor: NeighborType::Nil,
             n: Vector3::zeros(),
             distance: 0.,
         }
     }
 
-    pub fn get_origin(&self) -> Point3<f64> {
-        // find the point closest to origin
-        // that does not look nice...
-        let length_vector = self.vertices.iter().map(|v| v.coords.abs().sum());
-        let index_of_min = length_vector
-            .enumerate()
-            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(index, _)| index);
-        self.vertices[index_of_min.unwrap()]
-    }
-
-    pub fn neighbour(&self) -> Ref<ComputationalCell<T>> {
-        self.neighbour.as_ref().unwrap().borrow()
-    }
-}
-
-//////////////////////////////////////
-/// CELLTYPE and BOUNDARYCONDITION ///
-//////////////////////////////////////
-#[derive(Clone)]
-pub enum CellType<T: HasProperties> {
-    Internal,
-    Boundary(Vec<equation::BoundaryCondition<T>>),
-    Nil,
-}
-
-impl<T: HasProperties> fmt::Debug for CellType<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CellType::Internal => write!(f, "Internal"),
-            CellType::Boundary(_) => write!(f, "Boundary"),
-            CellType::Nil => write!(f, "Nil"),
+    pub fn neighbour(&self) -> Option<usize> {
+        if let NeighborType::Internal(i) = self.neighbor {
+            Some(i)
+        } else {
+            None
         }
     }
 }

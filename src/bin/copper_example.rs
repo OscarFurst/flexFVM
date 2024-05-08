@@ -1,10 +1,9 @@
 use flex_fvm::{
-    computational_cell::{self, HasProperties},
+    computational_cell::{self, ComputationalCell, HasProperties},
     equation::*,
-    generate_equation_structure, mesh, solver,
+    generate_equation_structure, mesh, problem, solver,
 };
 use nalgebra::{dvector, DVector};
-use std::cell::Ref;
 use std::fmt;
 use std::time::Instant;
 
@@ -63,58 +62,87 @@ pub fn copper() -> Properties {
 }
 
 #[allow(non_snake_case)]
-pub fn create_mesh() -> mesh::Mesh<Properties> {
+pub fn create_mesh() -> problem::Problem<Properties> {
     // todo : add a macro that wraps all that into an "Equation" struct
     let heat_diffusion_equations =
         generate_equation_structure!(get_T, update_T_user, heat_diffusion_user, 1);
     // define the boundary conditions
-    let bc1 = BoundaryCondition(heat_dirichlet, dvector![300.]);
-    let bc2 = BoundaryCondition(heat_neumann, dvector![0.]);
-    let bc3 = BoundaryCondition(heat_dirichlet, dvector![0.]);
-    let boundary_conditions: [Vec<BoundaryCondition<Properties>>; 6] = [
-        vec![bc1],
-        vec![bc2.clone()],
-        vec![bc2.clone()],
-        vec![bc3],
-        vec![bc2.clone()],
-        vec![bc2],
-    ];
+    // left
+    let bc1 = vec![BoundaryCondition(heat_dirichlet, dvector![300.])];
+    // right
+    let bc2 = vec![BoundaryCondition(heat_neumann, dvector![0.])];
+    // front, back, top, bottom
+    let bc3 = vec![BoundaryCondition(heat_dirichlet, dvector![0.])];
+
     let n_grid = (50, 1, 20);
-    let mut block = mesh::Mesh::new();
-    block.add_layer(
+
+    let mut block: problem::Problem<Properties> = problem::Problem::new();
+    // bottom left
+    let boundary_conditions = [
+        Some(bc1.clone()),
+        Some(bc2.clone()),
+        Some(bc2.clone()),
+        None,
+        Some(bc2.clone()),
+        None,
+    ];
+    block.add_zone(
         (0., 0., 0.),
         (0.5, 1., 0.5),
         n_grid,
-        boundary_conditions.clone(),
+        boundary_conditions,
         vec![heat_diffusion_equations],
         copper(),
-        copper(),
     );
-    block.add_layer(
+    // bottom right
+    let boundary_conditions = [
+        None,
+        Some(bc2.clone()),
+        Some(bc2.clone()),
+        Some(bc3.clone()),
+        Some(bc2.clone()),
+        None,
+    ];
+    block.add_zone(
         (0.5, 0., 0.),
         (1., 1., 0.5),
         n_grid,
         boundary_conditions.clone(),
         vec![heat_diffusion_equations],
         copper(),
-        copper(),
     );
-    block.add_layer(
+    // top left
+    let boundary_conditions = [
+        Some(bc1.clone()),
+        Some(bc2.clone()),
+        None,
+        None,
+        Some(bc2.clone()),
+        Some(bc2.clone()),
+    ];
+    block.add_zone(
         (0., 0., 0.5),
         (0.5, 1., 1.),
         n_grid,
         boundary_conditions.clone(),
         vec![heat_diffusion_equations],
         copper(),
-        copper(),
     );
-    block.add_layer(
+    // top right
+    let boundary_conditions = [
+        None,
+        Some(bc2.clone()),
+        None,
+        Some(bc3.clone()),
+        Some(bc2.clone()),
+        Some(bc2.clone()),
+    ];
+    block.add_zone(
         (0.5, 0., 0.5),
         (1., 1., 1.),
         n_grid,
         boundary_conditions,
         vec![heat_diffusion_equations],
-        copper(),
         copper(),
     );
     block
@@ -133,32 +161,25 @@ pub fn update_T_user(p: &mut Properties, T: f64) {
     p.T = T;
 }
 
-pub fn heat_diffusion_user(p: &Ref<computational_cell::ComputationalCell<Properties>>) -> f64 {
+pub fn heat_diffusion_user(m: &Vec<ComputationalCell<Properties>>, i_p: &usize) -> f64 {
+    // TODO : deal with boundary conditions
+    let p = m[*i_p];
     let mut flux = 0.;
-    for f in p.faces.iter() {
-        let n = f.neighbour();
-        flux -= p.properties.lambda * (p.properties.T - n.properties.T) / f.distance * f.area;
+    for f in m[*i_p].faces.iter() {
+        if let Some(n_n) = f.neighbour() {
+            let n = m[n_n];
+            flux -= p.properties.lambda * (p.properties.T - n.properties.T) / f.distance * f.area;
+        }
     }
     flux / p.volume / p.properties.rho / p.properties.cp
 }
 
 #[allow(non_snake_case, unused_variables)]
-pub fn heat_dirichlet(
-    p: &mut Properties,
-    faces: &[computational_cell::Face<Properties>],
-    T: &DVector<f64>,
-) {
-    p.T = T[0];
+pub fn heat_dirichlet(p: &mut Properties, face: &computational_cell::Face, T: &DVector<f64>) {
+    // TODO
 }
 
 #[allow(non_snake_case)]
-pub fn heat_neumann(
-    p: &mut Properties,
-    faces: &[computational_cell::Face<Properties>],
-    dTdx: &DVector<f64>,
-) {
-    let n = faces[0].neighbour();
-    let mut boundary_value = n.properties.T;
-    boundary_value += dTdx[0] * faces[0].distance;
-    p.T = boundary_value;
+pub fn heat_neumann(p: &mut Properties, face: &computational_cell::Face, dTdx: &DVector<f64>) {
+    // TODO
 }

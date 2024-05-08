@@ -1,23 +1,23 @@
 use crate::computational_cell::HasProperties;
-use crate::mesh;
+use crate::problem::Problem;
 use indicatif::ProgressBar;
 use nalgebra::DVector;
 use std::time::Instant;
 
-pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64) -> mesh::Mesh<T> {
-    let mut mesh = initial_mesh.clone();
+pub fn solve<T: HasProperties>(initial_problem: &Problem<T>, t_end: f64, h0: f64) -> Problem<T> {
+    let mut problem = initial_problem.clone();
     let mut t = 0.;
     let mut it = 0;
 
     // x contains the initial solution
-    let mut x = initial_mesh.get_state();
+    let mut x = initial_problem.get_state();
     let start = Instant::now();
     println!("👩‍🔬 Solving ...");
     let pb = ProgressBar::new((t_end / h0) as u64);
     while t < t_end {
         pb.inc(1);
-        mesh.update(&x);
-        let y = mesh.setup_equations(&t, &x);
+        problem.update(&x);
+        let y = problem.setup_equations(&t, &x);
         for i in 0..x.len() {
             for j in 0..x[i].len() {
                 x[i][j] += h0 * y[i][j]; // loop is faster than DVector product
@@ -36,7 +36,7 @@ pub fn solve<T: HasProperties>(initial_mesh: &mesh::Mesh<T>, t_end: f64, h0: f64
         duration.as_millis(),
         it
     );
-    mesh
+    problem
 }
 
 fn stop_criterial(y: &[DVector<f64>], t: f64) -> bool {
