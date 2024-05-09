@@ -161,14 +161,14 @@ pub fn update_T_user(p: &mut Properties, T: f64) {
     p.T = T;
 }
 
-pub fn heat_diffusion_user(m: &Vec<ComputationalCell<Properties>>, i_p: &usize) -> f64 {
+pub fn heat_diffusion_user(mesh: &mesh::Mesh<Properties>, i_p: usize) -> f64 {
     // TODO : deal with boundary conditions
-    let p = m[*i_p];
+    let p = mesh.cells[i_p];
     let mut flux = 0.;
-    for f in m[*i_p].faces.iter() {
-        if let Some(n_n) = f.neighbour() {
-            let n = m[n_n];
-            flux -= p.properties.lambda * (p.properties.T - n.properties.T) / f.distance * f.area;
+    for face in p.faces.iter().map(|i_face| &mesh.faces[*i_face]) {
+        if let Some((i_n, distance)) = face.neighbor(i_p) {
+            let n = mesh.cells[i_n];
+            flux -= p.properties.lambda * (p.properties.T - n.properties.T) / distance * face.area;
         }
     }
     flux / p.volume / p.properties.rho / p.properties.cp

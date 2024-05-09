@@ -215,7 +215,7 @@ pub fn euler_wall(
     _data: &DVector<f64>,
 ) {
     // this is the impermeable wall boundary condition. The wall is normal to the face
-    let n = faces[0].neighbour().properties;
+    let n = faces[0].neighbor().properties;
     let normal = faces[0].n;
     p.rho = n.rho;
     p.rho_u = n.rho_u - 2. * n.rho_u.dot(&normal) * normal; // from https://math.stackexchange.com/questions/3654725/vector-equation-of-a-line-that-is-symmetrical-to-another-line-l-with-respect-to
@@ -229,7 +229,7 @@ pub fn euler_fully_developed(
 ) {
     // this is the fully developed boundary condition, where the flow is assumed to not change in the normal direction
     // data = [rho, u, v, w, p]
-    let n = faces[0].neighbour().properties;
+    let n = faces[0].neighbor().properties;
     p.rho = n.rho;
     p.rho_u = n.rho_u;
     p.E = n.E;

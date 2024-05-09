@@ -103,11 +103,18 @@ impl Face {
         }
     }
 
-    pub fn neighbour(&self) -> Option<(usize, f64)> {
-        if let NeighborType::Internal(i, d) = self.neighbor {
-            Some((i, d))
-        } else {
-            None
+    /// Returns a tuple with the index of the neighbor to the cell passed as argument and the distance to it.
+    pub fn neighbor(&self, i: usize) -> Option<(usize, f64)> {
+        // check if i is the owner or the neighbour
+        match self.owner.0 {
+            i => match self.neighbor {
+                NeighborType::Internal(j, distance) => Some((j, distance + self.owner.1)),
+                _ => None,
+            },
+            _ => match self.neighbor {
+                NeighborType::Internal(_, distance) => Some((i, distance + self.owner.1)),
+                _ => None,
+            },
         }
     }
 }
