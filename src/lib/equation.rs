@@ -1,6 +1,5 @@
 use crate::computational_cell;
 use crate::computational_cell::{ComputationalCell, HasProperties};
-use crate::mesh::Mesh;
 use nalgebra::DVector;
 
 #[derive(Clone)]

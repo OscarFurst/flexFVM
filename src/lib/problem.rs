@@ -169,11 +169,6 @@ impl<T: HasProperties> Problem<T> {
         self
     }
 
-    /// Assigns the right neighbor to every face of every cell.
-    pub fn link(&mut self) -> &mut Problem<T> {
-        for i in 0..self.n_cells() - 1 {}
-    }
-
     pub fn get_state(&self) -> Vec<DVector<f64>> {
         // returns the current state of the mesh
         // TODO: Vec capacity should be calculated correctly for faster computation
