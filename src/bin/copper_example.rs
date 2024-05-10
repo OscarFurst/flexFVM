@@ -17,6 +17,7 @@ fn main() {
         initial_mesh.n_cells()
     );
     let solution = solver::solve(&initial_mesh, 0.001, 0.000001);
+    solution.mesh.export_to_vtk("copper_solution.vtk");
 }
 
 ////////////////////////
@@ -175,11 +176,12 @@ pub fn heat_diffusion_user(problem: &problem::Problem<Properties>, i_p: usize) -
                 let f = &problem.mesh.faces[i_f];
                 flux -= p.properties.lambda * (p.properties.T - n.properties.T) / distance * f.area;
             }
-            problem::NeighborReturn::Boundary(name, i_f, values) => {
+            problem::NeighborReturn::Boundary(name, i_f, distance, values) => {
                 let f = &problem.mesh.faces[i_f];
                 match name.as_str() {
                     "dirichlet" => {
-                        flux -= p.properties.lambda * (p.properties.T - values[0]) / f.area;
+                        flux -=
+                            p.properties.lambda * (p.properties.T - values[0]) / distance * f.area;
                     }
                     "neumann" => {
                         flux -= values[0];

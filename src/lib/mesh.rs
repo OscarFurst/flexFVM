@@ -144,11 +144,22 @@ impl<T: HasProperties> Mesh<T> {
                 let face_distance = (face.center - cell_center).norm();
                 // face normal points from the owner to the neighbour
                 face.owner = (cell_index, face_distance);
-                if (face.center - cell_center).dot(&face.normal) < 0. {
-                    face.normal *= -1.;
-                }
                 cell_faces.push(self.faces.len());
                 self.faces.push(face);
+            }
+        }
+        // check if the faces are correctly oriented, meaning that the face normals point outwards of the owner and inwards of the neighbour
+        for i_face in cell_faces.iter() {
+            let face = &self.faces[*i_face];
+            let to_face = face.center - cell_center;
+            if cell_index == face.owner.0 {
+                if to_face.dot(&face.normal) < 0. {
+                    panic!("Face normal points into the owner cell")
+                }
+            } else {
+                if to_face.dot(&face.normal) > 0. {
+                    panic!("Face normal points into the neighbor cell")
+                }
             }
         }
 
@@ -355,6 +366,24 @@ mod tests {
             0,
         );
         mesh.export_to_vtk("single_cell_mesh.vtk");
+    }
+
+    #[test]
+    fn export_double_cell_mesh() {
+        let mut mesh: crate::mesh::Mesh<Properties> = crate::mesh::Mesh::new();
+        mesh.add_hex_cell(
+            nalgebra::Point3::new(0., 0., 0.),
+            nalgebra::Point3::new(1., 1., 1.),
+            Properties::default(),
+            0,
+        );
+        mesh.add_hex_cell(
+            nalgebra::Point3::new(1., 0., 0.),
+            nalgebra::Point3::new(2., 1., 1.),
+            Properties::default(),
+            0,
+        );
+        mesh.export_to_vtk("double_cell_mesh.vtk");
     }
 
     #[test]

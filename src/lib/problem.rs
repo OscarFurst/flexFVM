@@ -2,11 +2,12 @@ use crate::computational_cell::{HasProperties, NeighborType};
 use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
 use crate::mesh::Mesh;
+use indicatif::ProgressBar;
 use nalgebra::{DVector, Point3, Vector3};
 
 pub enum NeighborReturn {
     Internal(usize, usize, f64),
-    Boundary(String, usize, DVector<f64>),
+    Boundary(String, usize, f64, DVector<f64>),
     Nil, // should only exist in 1D or 2D cases, where there is no neighbor in the missing dimension
 }
 
@@ -82,8 +83,11 @@ impl<T: HasProperties> Problem<T> {
             }
         }
         // loop that creates one cell at a time
+        println!("🔗 Meshing ...");
+        let pb = ProgressBar::new((nx) as u64);
         let mut zone_cell_indices = Vec::new();
         for i in 0..nx {
+            pb.inc(1);
             for j in 0..ny {
                 for k in 0..nz {
                     let cell_index = self.mesh.add_hex_cell(
@@ -163,6 +167,7 @@ impl<T: HasProperties> Problem<T> {
                 }
             }
         }
+        pb.finish();
         let mut used_bc: Vec<BoundaryCondition> = Vec::new();
         for b in boundaries {
             if let (_, _, Some(bb), _) = b {
@@ -246,7 +251,12 @@ impl<T: HasProperties> Problem<T> {
                     let BoundaryCondition(name, values) = &self.equation_containers
                         [self.mesh.cells[i_cell].zone]
                         .boundary_conditions[id];
-                    NeighborReturn::Boundary(name.clone(), *i_face, values.clone())
+                    NeighborReturn::Boundary(
+                        name.clone(),
+                        *i_face,
+                        self.mesh.faces[*i_face].owner.1,
+                        values.clone(),
+                    )
                 }
                 _ => return NeighborReturn::Nil,
             })

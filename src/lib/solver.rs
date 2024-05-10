@@ -37,7 +37,6 @@ pub fn solve<T: HasProperties>(initial_problem: &Problem<T>, t_end: f64, h0: f64
         it
     );
     println!("Exporting results ...");
-    problem.mesh.export_to_vtk("solution.vtk");
     problem
 }
 

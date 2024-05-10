@@ -72,7 +72,7 @@ impl<T: HasProperties> ComputationalCell<T> {
         let mut vertex_list: Vec<usize> = Vec::new();
         // start by adding the vertices of the first face
         vertex_list.extend(mesh.faces[self.faces[0]].vertices.iter());
-        // add the vertices of the opposite face, but in reverse order
+        // add the vertices of the opposite face
         // opposite face is the one that shares no vertex with the first face
         let opposite_face = self
             .faces
@@ -86,7 +86,10 @@ impl<T: HasProperties> ComputationalCell<T> {
             .unwrap();
         let opposite_face = &mesh.faces[*opposite_face];
         let mut opposite_vertices = opposite_face.vertices.clone();
-        opposite_vertices.reverse();
+        // if the normal of the opposite face is pointing in the other direction, we need to reverse the order of the vertices
+        if opposite_face.normal.dot(&mesh.faces[self.faces[0]].normal) < 0. {
+            opposite_vertices.reverse();
+        }
         // we shift the vertices of the "opposite_vertices" as long as the first vertex is not directly opposite to the first vertex of the "vertex_list"
         // being opposite means that the vector between the two vertices is parallel to the normal of the face
         let mut i = 0;
