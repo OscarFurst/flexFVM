@@ -93,7 +93,7 @@ impl<T: HasProperties> Problem<T> {
                     let cell_index = self.mesh.add_hex_cell(
                         origin + ex * i as f64 + ey * j as f64 + ez * k as f64,
                         origin + ex * (i + 1) as f64 + ey * (j + 1) as f64 + ez * (k + 1) as f64,
-                        internal_props.clone(),
+                        internal_props,
                         zone_id,
                     );
                     zone_cell_indices.push(cell_index);
@@ -176,7 +176,7 @@ impl<T: HasProperties> Problem<T> {
         }
         self.equation_containers.push(EquationContainer {
             cell_indices: zone_cell_indices,
-            equations: equations,
+            equations,
             boundary_conditions: used_bc,
         });
         self
@@ -201,7 +201,7 @@ impl<T: HasProperties> Problem<T> {
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    y.push((eq.rhs)(&self, *i_cell))
+                    y.push((eq.rhs)(self, *i_cell))
                 }
             }
         }
@@ -233,11 +233,8 @@ impl<T: HasProperties> Problem<T> {
             .iter()
             .map(|i_face| match self.mesh.faces[*i_face].neighbor {
                 NeighborType::Internal(i, n_distance) if i == i_cell => {
-                    match self.mesh.faces[*i_face].owner {
-                        (i, o_distance) => {
-                            NeighborReturn::Internal(i, *i_face, o_distance + n_distance)
-                        }
-                    }
+                    let (i, o_distance) = self.mesh.faces[*i_face].owner;
+                    NeighborReturn::Internal(i, *i_face, o_distance + n_distance)
                 }
                 NeighborType::Internal(i, n_distance) => NeighborReturn::Internal(
                     i,
@@ -255,8 +252,14 @@ impl<T: HasProperties> Problem<T> {
                         values.clone(),
                     )
                 }
-                _ => return NeighborReturn::Nil,
+                _ => NeighborReturn::Nil,
             })
             .collect()
+    }
+}
+
+impl<T: HasProperties> Default for Problem<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }

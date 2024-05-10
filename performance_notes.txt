@@ -45,3 +45,11 @@ meshing of copper case (12560 cells) : not representative
 Implementing getter function :
 for 10000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh : not using that anymore - 559 ms, 566 ms, 649 ms (release)
 meshing of copper case (12560 cells) : 2496 ms, 2243 ms, 2291 ms
+
+/!\ Somehow I managed to write total bullshit in this file: most of these tests were performed with 1_000 iterations (and not 10_000) !
+/!\ Also I have no idea what's up with the "meshing copper case" number of cells.
+/!\ I'll do my best not messing this up in the future.
+
+Changing mesh structure to be in line with common mesh formats :
+for 1000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh :  -  1655 ms, 1632 ms, 1587 ms (release)
+meshing of copper case (4000 cells) : 21190 ms, 21048 ms, 21032 ms

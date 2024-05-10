@@ -140,7 +140,7 @@ impl<T: HasProperties> Mesh<T> {
                 }
             }
             if !found {
-                let mut face = Face::new(&self, vertices);
+                let mut face = Face::new(self, vertices);
                 let face_distance = (face.center - cell_center).norm();
                 // face normal points from the owner to the neighbour
                 face.owner = (cell_index, face_distance);
@@ -156,15 +156,13 @@ impl<T: HasProperties> Mesh<T> {
                 if to_face.dot(&face.normal) < 0. {
                     panic!("Face normal points into the owner cell")
                 }
-            } else {
-                if to_face.dot(&face.normal) > 0. {
-                    panic!("Face normal points into the neighbor cell")
-                }
+            } else if to_face.dot(&face.normal) > 0. {
+                panic!("Face normal points into the neighbor cell")
             }
         }
 
         self.cells
-            .push(ComputationalCell::new(&self, cell_faces, properties, zone));
+            .push(ComputationalCell::new(self, cell_faces, properties, zone));
         cell_index
     }
 
@@ -256,7 +254,7 @@ impl<T: HasProperties> Mesh<T> {
                 cells: vtkio::model::Cells {
                     cell_verts: vtkio::model::VertexNumbers::XML {
                         connectivity: cell_indices.concat(),
-                        offsets: offsets,
+                        offsets,
                     },
                     types: cell_indices
                         .iter()
@@ -289,7 +287,7 @@ impl<T: HasProperties> Mesh<T> {
         // export
         let file_path = PathBuf::from(filename);
         vtk_file
-            .export_ascii(&file_path)
+            .export_ascii(file_path)
             .expect("Failed to export mesh to VTK");
     }
 }

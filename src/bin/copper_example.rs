@@ -109,7 +109,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         (0.5, 0., 0.),
         (1., 1., 0.5),
         n_grid,
-        boundary_conditions.clone(),
+        boundary_conditions,
         vec![heat_diffusion_equations],
         copper(),
     );
@@ -126,7 +126,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         (0., 0., 0.5),
         (0.5, 1., 1.),
         n_grid,
-        boundary_conditions.clone(),
+        boundary_conditions,
         vec![heat_diffusion_equations],
         copper(),
     );

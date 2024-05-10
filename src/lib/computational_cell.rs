@@ -46,14 +46,13 @@ impl<T: HasProperties> ComputationalCell<T> {
             .collect();
         let r = polyhedron_center(&vertex_coordinates);
         let volume = polyhedron_volume(&mesh.faces_to_points(&faces));
-        let cell = ComputationalCell {
+        ComputationalCell {
             faces,
             r,
             volume,
             properties,
             zone,
-        };
-        cell
+        }
     }
 
     /// Returns a list of vertex indices which is correctly sorted for VTK.
@@ -191,10 +190,6 @@ impl Face {
     }
 
     pub fn is_owner(&self, i_cell: usize) -> bool {
-        if self.owner.0 == i_cell {
-            true
-        } else {
-            false
-        }
+        self.owner.0 == i_cell
     }
 }
