@@ -52,12 +52,93 @@ impl<T: HasProperties> ComputationalCell<T> {
         };
         cell
     }
+
+    /// Returns a list of vertex indices which is correctly sorted for VTK.
+    /// Only works for hexahedrons.
+    pub fn hexahedron_vertices(&self, mesh: &Mesh<T>) -> Vec<usize> {
+        // check that it is a hexahedron
+        if self.faces.len() != 6
+            || self
+                .faces
+                .iter()
+                .any(|i_face| mesh.faces[*i_face].vertices.len() != 4)
+        {
+            panic!("Only hexahedra are supported for VTK export");
+        }
+        // create a vec of unique vertices
+        let mut vertex_list: Vec<usize> = Vec::new();
+        // start by adding the vertices of the first face
+        vertex_list.extend(mesh.faces[self.faces[0]].vertices.iter());
+        // add the vertices of the opposite face, but in reverse order
+        // opposite face is the one that shares no vertex with the first face
+        let opposite_face = self
+            .faces
+            .iter()
+            .find(|i_face| {
+                mesh.faces[**i_face]
+                    .vertices
+                    .iter()
+                    .all(|i_vertex| !vertex_list.contains(i_vertex))
+            })
+            .unwrap();
+        let opposite_face = &mesh.faces[*opposite_face];
+        let mut opposite_vertices = opposite_face.vertices.clone();
+        opposite_vertices.reverse();
+        // we shift the vertices of the "opposite_vertices" as long as the first vertex is not directly opposite to the first vertex of the "vertex_list"
+        // being opposite means that the vector between the two vertices is parallel to the normal of the face
+        let mut i = 0;
+        while !self.are_connected(mesh, vertex_list[0], opposite_vertices[0]) {
+            opposite_vertices.rotate_left(1);
+            i += 1;
+            if i > 4 {
+                panic!("Could not find the opposite face");
+            }
+        }
+        vertex_list.extend(opposite_vertices.iter());
+        vertex_list
+    }
+
+    /// Returns true if the two vertices share two faces of the computational cell.
+    fn are_connected(&self, mesh: &Mesh<T>, i_vertex1: usize, i_vertex2: usize) -> bool {
+        let faces1: Vec<usize> = self
+            .faces
+            .iter()
+            .map(|i_face| &mesh.faces[*i_face])
+            .enumerate()
+            .filter(|(i, face)| face.vertices.contains(&i_vertex1))
+            .map(|(i, _)| i)
+            .collect();
+        let faces2: Vec<usize> = self
+            .faces
+            .iter()
+            .map(|i_face| &mesh.faces[*i_face])
+            .enumerate()
+            .filter(|(i, face)| face.vertices.contains(&i_vertex2))
+            .map(|(i, _)| i)
+            .collect();
+        let mut common_faces = 0;
+        for i_face1 in faces1.iter() {
+            for i_face2 in faces2.iter() {
+                if *i_face1 == *i_face2 {
+                    common_faces += 1;
+                }
+            }
+        }
+        common_faces == 2
+    }
 }
 
 impl<T: HasProperties> fmt::Debug for ComputationalCell<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.properties.fmt(f)
     }
+}
+
+#[allow(dead_code)]
+fn dedup(v: &mut Vec<usize>) {
+    let mut set = std::collections::HashSet::new();
+
+    v.retain(|x| set.insert(*x));
 }
 
 ////////////

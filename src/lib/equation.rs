@@ -1,19 +1,24 @@
-use crate::computational_cell;
-use crate::computational_cell::{ComputationalCell, HasProperties};
+use crate::computational_cell::HasProperties;
 use nalgebra::DVector;
 
+/// A BoundaryCondition is a combination of :
+/// - a name
+/// - a DVector
+/// Basically, it only tells the equation which BC to apply, optionally including some data.
 #[derive(Clone)]
-pub struct BoundaryCondition<T: HasProperties>(
-    pub fn(&mut T, &computational_cell::Face, &DVector<f64>),
-    pub DVector<f64>,
-);
+pub struct BoundaryCondition(pub String, pub DVector<f64>);
 
-// An Equation is a combination of a
-#[derive(Clone, Copy)]
+// An Equation is a combination of :
+// - a function that "gets" the derivated property
+// - a function that "sets" the derivated property
+// - a function that computes the derivative of the property
+// - the dimension of the property, e.g. 1 for a scalar, 3 for a velocity vector, ...
+// - a list (Vec) of possible boundary conditions
+#[derive(Clone)]
 pub struct Equation<T: HasProperties> {
     pub get: fn(&T) -> DVector<f64>,
     pub lhs: fn(&mut T, &DVector<f64>),
-    pub rhs: fn(&Vec<ComputationalCell<T>>, &usize) -> DVector<f64>,
+    pub rhs: fn(&crate::mesh::Mesh<T>, usize) -> DVector<f64>,
     pub dimension: usize,
 }
 
@@ -75,16 +80,15 @@ macro_rules! generate_equation_function {
     // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
     // into a function that operates on a DVector<f64>, which is used by the solver
     ($user_equation_function:ident, 1) => {
-        |m: &Vec<computational_cell::ComputationalCell<Properties>>, p: &usize| -> DVector<f64> {
+        |m: &crate::mesh::Mesh<Properties>, p: usize| -> DVector<f64> {
             let v1: f64 = $user_equation_function(m, p);
             dvector![v1]
-        } as fn(&Vec<computational_cell::ComputationalCell<Properties>>, &usize) -> DVector<f64>
+        } as fn(&crate::mesh::Mesh<Properties>, usize) -> DVector<f64>
     };
     ($user_equation_function:ident, $SomeType:expr) => {
-        |m: &Vec<computational_cell::ComputationalCell<Properties>>, p: &usize| -> DVector<f64> {
+        |m: &crate::mesh::Mesh<Properties>, p: usize| -> DVector<f64> {
             let v1: nalgebra::SVector<f64, $SomeType> = $user_equation_function(m, p);
             DVector::from_vec(v1.as_slice().to_vec())
-        }
-            as fn(&Vec<computational_cell::ComputationalCell<Properties>>, &usize) -> DVector<f64>;
+        } as fn(&crate::mesh::Mesh<Properties>, usize) -> DVector<f64>;
     };
 }

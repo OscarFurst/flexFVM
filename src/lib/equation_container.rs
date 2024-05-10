@@ -6,8 +6,8 @@ use crate::equation::{BoundaryCondition, Equation};
 #[derive(Clone)]
 pub struct EquationContainer<T: HasProperties> {
     pub cell_indices: Vec<usize>,
-    pub boundaries: Vec<Vec<BoundaryCondition<T>>>,
     pub equations: Vec<Equation<T>>,
+    pub boundary_conditions: Vec<BoundaryCondition>,
 }
 
 #[allow(dead_code)]

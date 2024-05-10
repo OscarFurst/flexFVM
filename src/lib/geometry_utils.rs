@@ -1,15 +1,22 @@
 use nalgebra::{Point3, Vector3};
 
-/// Checks if a polygon is convex and its vertices are sorted in a clockwise or counterclockwise order.
+/// Checks if a polygon is convex and its vertices are sorted in a counterclockwise order (right-hand rule).
 pub fn check_polygon_convexity(points: &[Point3<f64>]) -> bool {
+    let n = points.len();
+    if n < 3 {
+        return false;
+    }
     let mut convex = true;
-    for i in 0..points.len() {
-        let j = (i + 1) % points.len();
-        let k = (i + 2) % points.len();
-        let v1 = points[j] - points[i];
+    let mut normal = Vector3::new(0., 0., 0.);
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let k = (i + 2) % n;
+        let v1 = points[i] - points[j];
         let v2 = points[k] - points[j];
         let cross = v1.cross(&v2);
-        if cross.z < 0. {
+        if i == 0 {
+            normal = cross;
+        } else if cross.dot(&normal) < 0. {
             convex = false;
             break;
         }

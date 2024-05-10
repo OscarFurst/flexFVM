@@ -1,5 +1,5 @@
 use crate::computational_cell::{HasProperties, NeighborType};
-use crate::equation;
+use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
 use crate::mesh::Mesh;
 use nalgebra::{DVector, Point3, Vector3};
@@ -39,7 +39,7 @@ impl<T: HasProperties> Problem<T> {
         r2: (f64, f64, f64),
         // number of cells in each direction
         (nx, ny, nz): (usize, usize, usize),
-        bc: [Option<Vec<equation::BoundaryCondition<T>>>; 6],
+        bc: [Option<BoundaryCondition>; 6],
         equations: Vec<equation::Equation<T>>,
         internal_props: T,
     ) -> &mut Problem<T> {
@@ -155,7 +155,7 @@ impl<T: HasProperties> Problem<T> {
                 }
             }
         }
-        let mut used_bc: Vec<Vec<equation::BoundaryCondition<T>>> = Vec::new();
+        let mut used_bc: Vec<BoundaryCondition> = Vec::new();
         for b in boundaries {
             if let (_, _, Some(bb), _) = b {
                 used_bc.push(bb);
@@ -163,8 +163,8 @@ impl<T: HasProperties> Problem<T> {
         }
         self.equation_containers.push(EquationContainer {
             cell_indices: zone_cell_indices,
-            boundaries: used_bc,
             equations: equations,
+            boundary_conditions: used_bc,
         });
         self
     }
@@ -188,7 +188,7 @@ impl<T: HasProperties> Problem<T> {
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    y.push((eq.rhs)(&self.mesh.cells, i_cell))
+                    y.push((eq.rhs)(&self.mesh, *i_cell))
                 }
             }
         }
@@ -207,19 +207,5 @@ impl<T: HasProperties> Problem<T> {
                 self.mesh.cells[*i_cell].properties.update()
             }
         }
-        self.enforce_boundary_conditions();
-    }
-
-    pub fn enforce_boundary_conditions(&mut self) {
-        // for cell in self.cells.iter() {
-        //     let cellref = &mut cell.borrow_mut();
-        //     if let Boundary(bc_vector) = &cellref.variant {
-        //         let mut newproperties = cellref.properties;
-        //         for BoundaryCondition(function, value) in bc_vector {
-        //             function(&mut newproperties, &cellref.faces, value);
-        //         }
-        //         cellref.properties = newproperties;
-        //     }
-        // }
     }
 }

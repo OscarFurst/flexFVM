@@ -63,16 +63,16 @@ pub fn copper() -> Properties {
 
 #[allow(non_snake_case)]
 pub fn create_mesh() -> problem::Problem<Properties> {
-    // todo : add a macro that wraps all that into an "Equation" struct
+    // pack the equations
     let heat_diffusion_equations =
         generate_equation_structure!(get_T, update_T_user, heat_diffusion_user, 1);
     // define the boundary conditions
     // left
-    let bc1 = vec![BoundaryCondition(heat_dirichlet, dvector![300.])];
+    let bc1 = BoundaryCondition("dirichlet".to_string(), dvector![300.]);
     // right
-    let bc2 = vec![BoundaryCondition(heat_neumann, dvector![0.])];
+    let bc2 = BoundaryCondition("neumann".to_string(), dvector![0.]);
     // front, back, top, bottom
-    let bc3 = vec![BoundaryCondition(heat_dirichlet, dvector![0.])];
+    let bc3 = BoundaryCondition("dirichlet".to_string(), dvector![0.]);
 
     let n_grid = (50, 1, 20);
 
@@ -172,14 +172,4 @@ pub fn heat_diffusion_user(mesh: &mesh::Mesh<Properties>, i_p: usize) -> f64 {
         }
     }
     flux / p.volume / p.properties.rho / p.properties.cp
-}
-
-#[allow(non_snake_case, unused_variables)]
-pub fn heat_dirichlet(p: &mut Properties, face: &computational_cell::Face, T: &DVector<f64>) {
-    // TODO
-}
-
-#[allow(non_snake_case)]
-pub fn heat_neumann(p: &mut Properties, face: &computational_cell::Face, dTdx: &DVector<f64>) {
-    // TODO
 }

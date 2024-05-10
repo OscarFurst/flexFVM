@@ -1,7 +1,10 @@
+use std::path::PathBuf;
+
 use crate::computational_cell::{ComputationalCell, Face, HasProperties, NeighborType};
 use crate::geometry_utils::polyhedron_center;
 use itertools::Itertools;
 use nalgebra::{Point3, Vector3};
+use vtkio::model::{Attributes, DataArray, ElementType};
 
 /// The mesh owns all geometrical features:
 /// - vertices: points in space at the corners of computational cells
@@ -68,22 +71,25 @@ impl<T: HasProperties> Mesh<T> {
                 .collect::<Vec<_>>()
                 .as_slice(),
         );
-        // create faces if they do not exist, else retrieve their index
+        // Create faces if they do not exist, else retrieve their index.
+        // The faces need to follow the right-hand rule, meaning a counter-clockwise order of vertices
+        // which leads to the normal pointing outwards of the cell.
+        // There must be a smart way to achieve this, but for now I will hardcode the stupid way.
         // 6 faces, 4 vertices each
         let mut current_faces = [[usize::MAX; 4]; 6];
         // left face : i = 0
         current_faces[0] = [
             current_vertices_index[0][0][0],
-            current_vertices_index[0][1][0],
-            current_vertices_index[0][1][1],
             current_vertices_index[0][0][1],
+            current_vertices_index[0][1][1],
+            current_vertices_index[0][1][0],
         ];
         // right face : i = 1
         current_faces[1] = [
             current_vertices_index[1][0][0],
-            current_vertices_index[1][0][1],
-            current_vertices_index[1][1][1],
             current_vertices_index[1][1][0],
+            current_vertices_index[1][1][1],
+            current_vertices_index[1][0][1],
         ];
         // front face : j = 0
         current_faces[2] = [
@@ -102,9 +108,9 @@ impl<T: HasProperties> Mesh<T> {
         // bottom face : k = 0
         current_faces[4] = [
             current_vertices_index[0][0][0],
-            current_vertices_index[1][0][0],
-            current_vertices_index[1][1][0],
             current_vertices_index[0][1][0],
+            current_vertices_index[1][1][0],
+            current_vertices_index[1][0][0],
         ];
         // top face : k = 1
         current_faces[5] = [
@@ -175,6 +181,82 @@ impl<T: HasProperties> Mesh<T> {
             })
             .collect::<Vec<Vec<Point3<f64>>>>()
     }
+
+    /// Exports the mesh to the VTK format.
+    /// vtkio crate support for polyhedra is not yet implemented.
+    /// This function will only work for hexahedra.
+    pub fn export_to_vtk(&self, filename: &str) {
+        // collect the lists of points that define the cells
+        let cell_indices = self
+            .cells
+            .iter()
+            .map(|cell| {
+                cell.hexahedron_vertices(self)
+                    .iter()
+                    .map(|i| *i as u64)
+                    .collect::<Vec<u64>>()
+            })
+            .collect::<Vec<Vec<u64>>>();
+        let offsets: Vec<u64> = cell_indices
+            .iter()
+            .scan(0, |acc, x| {
+                *acc += x.len() as u64;
+                Some(*acc)
+            })
+            .collect::<Vec<u64>>();
+
+        // use the vtkio crate to write a VTK file
+        let vtk_file = vtkio::Vtk {
+            version: vtkio::model::Version { major: 4, minor: 2 },
+            title: "Mesh".to_string(),
+            byte_order: vtkio::model::ByteOrder::BigEndian,
+            file_path: None,
+            data: vtkio::model::DataSet::inline(vtkio::model::UnstructuredGridPiece {
+                points: vtkio::IOBuffer::F64(
+                    // vec that contains all point coordinates
+                    self.vertices
+                        .iter()
+                        .flat_map(|p| vec![p.x, p.y, p.z])
+                        .collect::<Vec<f64>>(),
+                ),
+                cells: vtkio::model::Cells {
+                    cell_verts: vtkio::model::VertexNumbers::XML {
+                        connectivity: cell_indices.concat(),
+                        offsets: offsets,
+                    },
+                    types: cell_indices
+                        .iter()
+                        .map(|index_list| match index_list.len() {
+                            8 => vtkio::model::CellType::Hexahedron,
+                            _ => vtkio::model::CellType::Polyhedron,
+                        })
+                        .collect(),
+                },
+                data: Attributes {
+                    cell: vec![vtkio::model::Attribute::DataArray(DataArray {
+                        name: "Volume".to_string(),
+                        elem: ElementType::Scalars {
+                            num_comp: 1,
+                            lookup_table: None,
+                        },
+                        data: vtkio::IOBuffer::F64(
+                            self.cells
+                                .iter()
+                                .map(|cell| cell.volume)
+                                .collect::<Vec<f64>>(),
+                        ),
+                    })],
+                    ..Default::default()
+                },
+            }),
+        };
+
+        // export
+        let file_path = PathBuf::from(filename);
+        vtk_file
+            .export_ascii(&file_path)
+            .expect("Failed to export mesh to VTK");
+    }
 }
 
 impl<T: HasProperties> Default for Mesh<T> {
@@ -230,5 +312,38 @@ mod tests {
 
         assert!(mesh.cells[0].volume - 1.0 < f64::EPSILON);
         assert_eq!(mesh.cells[0].r, nalgebra::Point3::new(0.5, 0.5, 0.5));
+    }
+
+    #[test]
+    fn export_single_cell_mesh() {
+        let mut mesh: crate::mesh::Mesh<Properties> = crate::mesh::Mesh::new();
+        mesh.add_hex_cell(
+            nalgebra::Point3::new(0., 0., 0.),
+            nalgebra::Point3::new(1., 1., 1.),
+            Properties::default(),
+        );
+        mesh.export_to_vtk("single_cell_mesh.vtk");
+    }
+
+    #[test]
+    fn print_single_cell_vertices() {
+        let mut mesh: crate::mesh::Mesh<Properties> = crate::mesh::Mesh::new();
+        mesh.add_hex_cell(
+            nalgebra::Point3::new(0., 0., 0.),
+            nalgebra::Point3::new(1., 1., 1.),
+            Properties::default(),
+        );
+        println!("Printing vertices of all faces of the single cell mesh:");
+        for i_face in mesh.cells[0].faces.iter() {
+            let face = &mesh.faces[*i_face];
+            println!("Face vertices:");
+            for i_vertex in face.vertices.iter() {
+                println!("{:?}", mesh.vertices[*i_vertex]);
+            }
+        }
+        println!("Printing the vertices given by the function:");
+        for i_vertex in mesh.cells[0].hexahedron_vertices(&mesh) {
+            println!("{:?}", mesh.vertices[i_vertex]);
+        }
     }
 }
