@@ -1,7 +1,7 @@
 // for now all cells are rectangular parallelepipeds
 use crate::geometry_utils::*;
 use crate::mesh::Mesh;
-use nalgebra::{Point3, Vector3};
+use nalgebra::{DVector, Point3, Vector3};
 use std::fmt;
 
 ///////////////////////////
@@ -22,16 +22,18 @@ pub struct ComputationalCell<T: HasProperties> {
     pub r: Point3<f64>, // m
     pub volume: f64,    // m3
     pub properties: T,
+    pub zone: usize,
 }
 
 pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
     fn update(&mut self); // this function only updates derived variables, computed variables are updated by the equations
+    fn export(&self) -> Vec<(String, f64)>;
 }
 
 impl<T: HasProperties> ComputationalCell<T> {
     /// Creates a new computational cell from a list of faces.
     /// The cell is not stored in the mesh, only its properties are initialized.
-    pub fn new(mesh: &Mesh<T>, faces: Vec<usize>, properties: T) -> Self {
+    pub fn new(mesh: &Mesh<T>, faces: Vec<usize>, properties: T, zone: usize) -> Self {
         let mut vertex_indices: Vec<usize> = faces
             .iter()
             .flat_map(|i_face| mesh.faces[*i_face].vertices.clone())
@@ -49,6 +51,7 @@ impl<T: HasProperties> ComputationalCell<T> {
             r,
             volume,
             properties,
+            zone,
         };
         cell
     }
@@ -181,21 +184,6 @@ impl Face {
             area,
             owner: (usize::MAX, 0.),
             neighbor: NeighborType::Nil,
-        }
-    }
-
-    /// Returns a tuple with the index of the neighbor to the cell passed as argument and the distance to it.
-    pub fn neighbor(&self, i: usize) -> Option<(usize, f64)> {
-        // check if i is the owner or the neighbour
-        match self.owner.0 {
-            i => match self.neighbor {
-                NeighborType::Internal(j, distance) => Some((j, distance + self.owner.1)),
-                _ => None,
-            },
-            _ => match self.neighbor {
-                NeighborType::Internal(_, distance) => Some((i, distance + self.owner.1)),
-                _ => None,
-            },
         }
     }
 }

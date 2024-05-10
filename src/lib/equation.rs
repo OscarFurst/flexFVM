@@ -14,11 +14,11 @@ pub struct BoundaryCondition(pub String, pub DVector<f64>);
 // - a function that computes the derivative of the property
 // - the dimension of the property, e.g. 1 for a scalar, 3 for a velocity vector, ...
 // - a list (Vec) of possible boundary conditions
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Equation<T: HasProperties> {
     pub get: fn(&T) -> DVector<f64>,
     pub lhs: fn(&mut T, &DVector<f64>),
-    pub rhs: fn(&crate::mesh::Mesh<T>, usize) -> DVector<f64>,
+    pub rhs: fn(&crate::problem::Problem<T>, usize) -> DVector<f64>,
     pub dimension: usize,
 }
 
@@ -80,15 +80,15 @@ macro_rules! generate_equation_function {
     // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
     // into a function that operates on a DVector<f64>, which is used by the solver
     ($user_equation_function:ident, 1) => {
-        |m: &crate::mesh::Mesh<Properties>, p: usize| -> DVector<f64> {
+        |m: &flex_fvm::problem::Problem<Properties>, p: usize| -> DVector<f64> {
             let v1: f64 = $user_equation_function(m, p);
             dvector![v1]
-        } as fn(&crate::mesh::Mesh<Properties>, usize) -> DVector<f64>
+        } as fn(&flex_fvm::problem::Problem<Properties>, usize) -> DVector<f64>
     };
     ($user_equation_function:ident, $SomeType:expr) => {
-        |m: &crate::mesh::Mesh<Properties>, p: usize| -> DVector<f64> {
+        |m: &flex_fvm::problem::Problem<Properties>, p: usize| -> DVector<f64> {
             let v1: nalgebra::SVector<f64, $SomeType> = $user_equation_function(m, p);
             DVector::from_vec(v1.as_slice().to_vec())
-        } as fn(&crate::mesh::Mesh<Properties>, usize) -> DVector<f64>;
+        } as fn(&flex_fvm::problem::Problem<Properties>, usize) -> DVector<f64>;
     };
 }

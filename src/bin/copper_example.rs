@@ -17,7 +17,6 @@ fn main() {
         initial_mesh.n_cells()
     );
     let solution = solver::solve(&initial_mesh, 0.001, 0.000001);
-    println!("{:?}", solution)
 }
 
 ////////////////////////
@@ -44,6 +43,10 @@ impl fmt::Debug for Properties {
 impl HasProperties for Properties {
     fn update(&mut self) {
         // here we can update derived variables if needed
+    }
+
+    fn export(&self) -> Vec<(String, f64)> {
+        vec![("T".to_string(), self.T)]
     }
 }
 
@@ -161,14 +164,34 @@ pub fn update_T_user(p: &mut Properties, T: f64) {
     p.T = T;
 }
 
-pub fn heat_diffusion_user(mesh: &mesh::Mesh<Properties>, i_p: usize) -> f64 {
+pub fn heat_diffusion_user(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
     // TODO : deal with boundary conditions
-    let p = mesh.cells[i_p];
+    let p = &problem.mesh.cells[i_p];
     let mut flux = 0.;
-    for face in p.faces.iter().map(|i_face| &mesh.faces[*i_face]) {
-        if let Some((i_n, distance)) = face.neighbor(i_p) {
-            let n = mesh.cells[i_n];
-            flux -= p.properties.lambda * (p.properties.T - n.properties.T) / distance * face.area;
+    for neighbor in problem.neighbors(i_p) {
+        match neighbor {
+            problem::NeighborReturn::Internal(i_n, i_f, distance) => {
+                let n = &problem.mesh.cells[i_n];
+                let f = &problem.mesh.faces[i_f];
+                flux -= p.properties.lambda * (p.properties.T - n.properties.T) / distance * f.area;
+            }
+            problem::NeighborReturn::Boundary(name, i_f, values) => {
+                let f = &problem.mesh.faces[i_f];
+                match name.as_str() {
+                    "dirichlet" => {
+                        flux -= p.properties.lambda * (p.properties.T - values[0]) / f.area;
+                    }
+                    "neumann" => {
+                        flux -= values[0];
+                    }
+                    _ => {
+                        panic!("Unknown boundary condition : {}", name);
+                    }
+                }
+            }
+            problem::NeighborReturn::Nil => {
+                // nothing to do
+            }
         }
     }
     flux / p.volume / p.properties.rho / p.properties.cp

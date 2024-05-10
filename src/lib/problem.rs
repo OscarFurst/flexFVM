@@ -4,6 +4,12 @@ use crate::equation_container::EquationContainer;
 use crate::mesh::Mesh;
 use nalgebra::{DVector, Point3, Vector3};
 
+pub enum NeighborReturn {
+    Internal(usize, usize, f64),
+    Boundary(String, usize, DVector<f64>),
+    Nil, // should only exist in 1D or 2D cases, where there is no neighbor in the missing dimension
+}
+
 #[derive(Clone)]
 pub struct Problem<T: HasProperties> {
     pub mesh: Mesh<T>,
@@ -43,6 +49,7 @@ impl<T: HasProperties> Problem<T> {
         equations: Vec<equation::Equation<T>>,
         internal_props: T,
     ) -> &mut Problem<T> {
+        let zone_id = self.equation_containers.len();
         // TODO: I could not think of an elegant way to pass boundary conditions
         // in the current state, the order in which they are passed are very important!
         let origin = Point3::new(r1.0, r1.1, r1.2);
@@ -83,6 +90,7 @@ impl<T: HasProperties> Problem<T> {
                         origin + ex * i as f64 + ey * j as f64 + ez * k as f64,
                         origin + ex * (i + 1) as f64 + ey * (j + 1) as f64 + ez * (k + 1) as f64,
                         internal_props.clone(),
+                        zone_id,
                     );
                     zone_cell_indices.push(cell_index);
                     // check if at boundary. if so, create boundary condition
@@ -188,7 +196,7 @@ impl<T: HasProperties> Problem<T> {
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    y.push((eq.rhs)(&self.mesh, *i_cell))
+                    y.push((eq.rhs)(&self, *i_cell))
                 }
             }
         }
@@ -207,5 +215,41 @@ impl<T: HasProperties> Problem<T> {
                 self.mesh.cells[*i_cell].properties.update()
             }
         }
+    }
+
+    /// Returns all neighbors of the specified cell
+    /// A neighbor can be :
+    /// - an internal cell (index, distance between centers)
+    /// - a boundary condition (name, some values)
+    /// - Nil (no neighbor, should only be encountered in 2D or 1D meshes)
+    pub fn neighbors(&self, i_cell: usize) -> Vec<NeighborReturn> {
+        self.mesh.cells[i_cell]
+            .faces
+            .iter()
+            .map(|i_face| match self.mesh.faces[*i_face].neighbor {
+                NeighborType::Internal(i, n_distance) if i == i_cell => {
+                    match self.mesh.faces[*i_face].owner {
+                        (i, o_distance) => {
+                            NeighborReturn::Internal(i, *i_face, o_distance + n_distance)
+                        }
+                        _ => {
+                            panic!("Internal face without owner")
+                        }
+                    }
+                }
+                NeighborType::Internal(i, n_distance) => NeighborReturn::Internal(
+                    i,
+                    *i_face,
+                    self.mesh.faces[*i_face].owner.1 + n_distance,
+                ),
+                NeighborType::Boundary(id) => {
+                    let BoundaryCondition(name, values) = &self.equation_containers
+                        [self.mesh.cells[i_cell].zone]
+                        .boundary_conditions[id];
+                    NeighborReturn::Boundary(name.clone(), *i_face, values.clone())
+                }
+                _ => return NeighborReturn::Nil,
+            })
+            .collect()
     }
 }

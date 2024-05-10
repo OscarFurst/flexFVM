@@ -31,7 +31,13 @@ impl<T: HasProperties> Mesh<T> {
         self.cells.len()
     }
 
-    pub fn add_hex_cell(&mut self, r1: Point3<f64>, r2: Point3<f64>, properties: T) -> usize {
+    pub fn add_hex_cell(
+        &mut self,
+        r1: Point3<f64>,
+        r2: Point3<f64>,
+        properties: T,
+        zone: usize,
+    ) -> usize {
         // assumes that the cell does not exist yet
         let cell_index = self.cells.len();
         // create vertices if they do not exist, else retrieve their index
@@ -147,7 +153,7 @@ impl<T: HasProperties> Mesh<T> {
         }
 
         self.cells
-            .push(ComputationalCell::new(&self, cell_faces, properties));
+            .push(ComputationalCell::new(&self, cell_faces, properties, zone));
         cell_index
     }
 
@@ -204,6 +210,23 @@ impl<T: HasProperties> Mesh<T> {
                 Some(*acc)
             })
             .collect::<Vec<u64>>();
+        // collect the data of the cells
+        let cell_data = self
+            .cells
+            .iter()
+            .map(|cell| cell.properties.export())
+            .collect::<Vec<_>>();
+        // data is obtained as a list of lists, where the "parent" list is the cell index and the "child" list is the data values
+        // I want to transpose this list of lists to have one "parent" list per variable with the "child" list being the values of the variable in all cells
+        // TODO : here I assume that all cells posess the same properties.
+        // I want this to be more generic at some point, although I don't know if it is compatible with the VTK format.
+        let data_labels = cell_data[0]
+            .iter()
+            .map(|(label, _)| label.clone())
+            .collect::<Vec<_>>();
+        let data_values: Vec<Vec<f64>> = (0..data_labels.len())
+            .map(|i| cell_data.iter().map(|data| data[i].1).collect::<Vec<f64>>())
+            .collect::<Vec<Vec<f64>>>();
 
         // use the vtkio crate to write a VTK file
         let vtk_file = vtkio::Vtk {
@@ -233,19 +256,20 @@ impl<T: HasProperties> Mesh<T> {
                         .collect(),
                 },
                 data: Attributes {
-                    cell: vec![vtkio::model::Attribute::DataArray(DataArray {
-                        name: "Volume".to_string(),
-                        elem: ElementType::Scalars {
-                            num_comp: 1,
-                            lookup_table: None,
-                        },
-                        data: vtkio::IOBuffer::F64(
-                            self.cells
-                                .iter()
-                                .map(|cell| cell.volume)
-                                .collect::<Vec<f64>>(),
-                        ),
-                    })],
+                    cell: {
+                        let mut attributes_items = Vec::new();
+                        for (label, values) in data_labels.iter().zip(data_values.iter()) {
+                            attributes_items.push(vtkio::model::Attribute::DataArray(DataArray {
+                                name: label.clone(),
+                                elem: ElementType::Scalars {
+                                    num_comp: 1,
+                                    lookup_table: None,
+                                },
+                                data: vtkio::IOBuffer::F64(values.clone()),
+                            }));
+                        }
+                        attributes_items
+                    },
                     ..Default::default()
                 },
             }),
@@ -270,9 +294,15 @@ mod tests {
     use crate::computational_cell::HasProperties;
 
     #[derive(Default, Copy, Clone, Debug)]
-    pub struct Properties {}
+    pub struct Properties {
+        T: f64,
+        h: f64,
+    }
     impl HasProperties for Properties {
         fn update(&mut self) {}
+        fn export(&self) -> Vec<(String, f64)> {
+            vec![("T".to_string(), self.T), ("h".to_string(), self.h)]
+        }
     }
 
     #[test]
@@ -282,6 +312,7 @@ mod tests {
             nalgebra::Point3::new(0., 0., 0.),
             nalgebra::Point3::new(1., 1., 1.),
             Properties::default(),
+            0,
         );
         assert_eq!(mesh.n_cells(), 1);
         assert_eq!(mesh.vertices.len(), 8);
@@ -321,6 +352,7 @@ mod tests {
             nalgebra::Point3::new(0., 0., 0.),
             nalgebra::Point3::new(1., 1., 1.),
             Properties::default(),
+            0,
         );
         mesh.export_to_vtk("single_cell_mesh.vtk");
     }
@@ -332,6 +364,7 @@ mod tests {
             nalgebra::Point3::new(0., 0., 0.),
             nalgebra::Point3::new(1., 1., 1.),
             Properties::default(),
+            0,
         );
         println!("Printing vertices of all faces of the single cell mesh:");
         for i_face in mesh.cells[0].faces.iter() {
