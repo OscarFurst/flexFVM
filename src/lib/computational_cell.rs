@@ -1,7 +1,7 @@
 // for now all cells are rectangular parallelepipeds
 use crate::geometry_utils::*;
 use crate::mesh::Mesh;
-use nalgebra::{DVector, Point3, Vector3};
+use nalgebra::{Point3, Vector3};
 use std::fmt;
 
 ///////////////////////////
@@ -111,7 +111,7 @@ impl<T: HasProperties> ComputationalCell<T> {
             .iter()
             .map(|i_face| &mesh.faces[*i_face])
             .enumerate()
-            .filter(|(i, face)| face.vertices.contains(&i_vertex1))
+            .filter(|(_, face)| face.vertices.contains(&i_vertex1))
             .map(|(i, _)| i)
             .collect();
         let faces2: Vec<usize> = self
@@ -119,7 +119,7 @@ impl<T: HasProperties> ComputationalCell<T> {
             .iter()
             .map(|i_face| &mesh.faces[*i_face])
             .enumerate()
-            .filter(|(i, face)| face.vertices.contains(&i_vertex2))
+            .filter(|(_, face)| face.vertices.contains(&i_vertex2))
             .map(|(i, _)| i)
             .collect();
         let mut common_faces = 0;
@@ -187,6 +187,14 @@ impl Face {
             area,
             owner: (usize::MAX, 0.),
             neighbor: NeighborType::Nil,
+        }
+    }
+
+    pub fn is_owner(&self, i_cell: usize) -> bool {
+        if self.owner.0 == i_cell {
+            true
+        } else {
+            false
         }
     }
 }

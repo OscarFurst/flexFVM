@@ -237,9 +237,6 @@ impl<T: HasProperties> Problem<T> {
                         (i, o_distance) => {
                             NeighborReturn::Internal(i, *i_face, o_distance + n_distance)
                         }
-                        _ => {
-                            panic!("Internal face without owner")
-                        }
                     }
                 }
                 NeighborType::Internal(i, n_distance) => NeighborReturn::Internal(

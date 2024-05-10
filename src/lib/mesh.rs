@@ -304,6 +304,7 @@ impl<T: HasProperties> Default for Mesh<T> {
 mod tests {
     use crate::computational_cell::HasProperties;
 
+    #[allow(non_snake_case)]
     #[derive(Default, Copy, Clone, Debug)]
     pub struct Properties {
         T: f64,

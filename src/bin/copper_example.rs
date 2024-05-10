@@ -1,7 +1,5 @@
 use flex_fvm::{
-    computational_cell::{self, ComputationalCell, HasProperties},
-    equation::*,
-    generate_equation_structure, mesh, problem, solver,
+    computational_cell::HasProperties, equation::*, generate_equation_structure, problem, solver,
 };
 use nalgebra::{dvector, DVector};
 use std::fmt;
