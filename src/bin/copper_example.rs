@@ -176,7 +176,7 @@ pub fn heat_diffusion_user(problem: &problem::Problem<Properties>, i_p: usize) -
             }
             problem::NeighborReturn::Boundary(name, i_f, distance, values) => {
                 let f = &problem.mesh.faces[i_f];
-                match name.as_str() {
+                match name {
                     "dirichlet" => {
                         flux -=
                             p.properties.lambda * (p.properties.T - values[0]) / distance * f.area;

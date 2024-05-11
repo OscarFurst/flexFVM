@@ -5,9 +5,9 @@ use crate::mesh::Mesh;
 use indicatif::ProgressBar;
 use nalgebra::{DVector, Point3, Vector3};
 
-pub enum NeighborReturn {
+pub enum NeighborReturn<'a> {
     Internal(usize, usize, f64),
-    Boundary(String, usize, f64, DVector<f64>),
+    Boundary(&'a str, usize, f64, &'a DVector<f64>),
     Nil, // should only exist in 1D or 2D cases, where there is no neighbor in the missing dimension
 }
 
@@ -101,7 +101,7 @@ impl<T: HasProperties> Problem<T> {
                     if i == 0 {
                         if let (point, normal, Some(_), index) = boundaries[0] {
                             // unwrap here because something is wrong if this fails
-                            let mut boundary_face = self
+                            let boundary_face = self
                                 .mesh
                                 .get_face_on_plane(point, normal, cell_index)
                                 .unwrap();
@@ -112,7 +112,7 @@ impl<T: HasProperties> Problem<T> {
                     if j == 0 {
                         if let (point, normal, Some(_), index) = boundaries[1] {
                             // unwrap here because something is wrong if this fails
-                            let mut boundary_face = self
+                            let boundary_face = self
                                 .mesh
                                 .get_face_on_plane(point, normal, cell_index)
                                 .unwrap();
@@ -123,7 +123,7 @@ impl<T: HasProperties> Problem<T> {
                     if k == 0 {
                         if let (point, normal, Some(_), index) = boundaries[2] {
                             // unwrap here because something is wrong if this fails
-                            let mut boundary_face = self
+                            let boundary_face = self
                                 .mesh
                                 .get_face_on_plane(point, normal, cell_index)
                                 .unwrap();
@@ -134,7 +134,7 @@ impl<T: HasProperties> Problem<T> {
                     if i == nx - 1 {
                         if let (point, normal, Some(_), index) = boundaries[3] {
                             // unwrap here because something is wrong if this fails
-                            let mut boundary_face = self
+                            let boundary_face = self
                                 .mesh
                                 .get_face_on_plane(point, normal, cell_index)
                                 .unwrap();
@@ -145,7 +145,7 @@ impl<T: HasProperties> Problem<T> {
                     if j == ny - 1 {
                         if let (point, normal, Some(_), index) = boundaries[4] {
                             // unwrap here because something is wrong if this fails
-                            let mut boundary_face = self
+                            let boundary_face = self
                                 .mesh
                                 .get_face_on_plane(point, normal, cell_index)
                                 .unwrap();
@@ -156,7 +156,7 @@ impl<T: HasProperties> Problem<T> {
                     if k == nz - 1 {
                         if let (point, normal, Some(_), index) = boundaries[5] {
                             // unwrap here because something is wrong if this fails
-                            let mut boundary_face = self
+                            let boundary_face = self
                                 .mesh
                                 .get_face_on_plane(point, normal, cell_index)
                                 .unwrap();
@@ -227,7 +227,7 @@ impl<T: HasProperties> Problem<T> {
     /// - an internal cell (index, distance between centers)
     /// - a boundary condition (name, some values)
     /// - Nil (no neighbor, should only be encountered in 2D or 1D meshes)
-    pub fn neighbors(&self, i_cell: usize) -> Vec<NeighborReturn> {
+    pub fn neighbors<'a>(&self, i_cell: usize) -> Vec<NeighborReturn> {
         self.mesh.cells[i_cell]
             .faces
             .iter()
@@ -246,10 +246,10 @@ impl<T: HasProperties> Problem<T> {
                         [self.mesh.cells[i_cell].zone]
                         .boundary_conditions[id];
                     NeighborReturn::Boundary(
-                        name.clone(),
+                        name,
                         *i_face,
                         self.mesh.faces[*i_face].owner.1,
-                        values.clone(),
+                        values,
                     )
                 }
                 _ => NeighborReturn::Nil,

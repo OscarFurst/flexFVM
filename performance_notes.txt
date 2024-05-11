@@ -53,3 +53,7 @@ meshing of copper case (12560 cells) : 2496 ms, 2243 ms, 2291 ms
 Changing mesh structure to be in line with common mesh formats :
 for 1000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh :  -  1655 ms, 1632 ms, 1587 ms (release)
 meshing of copper case (4000 cells) : 21190 ms, 21048 ms, 21032 ms
+
+Don't clone strings :
+for 1000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh :  -  698 ms, 698 ms, 731 ms (release)
+meshing of copper case (4000 cells) : 486 ms, 491 ms, 492 ms

@@ -154,7 +154,7 @@ pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
             }
             problem::NeighborReturn::Boundary(name, i_f, _, values) => {
                 let f = &problem.mesh.faces[i_f];
-                match name.as_str() {
+                match name {
                     "inlet" => {
                         // flux with known properties rho (values[0]) and u (values[1..=3])
                         let rho_avg = (p.properties.rho + values[0]) / 2.;
@@ -218,7 +218,7 @@ pub fn euler_impulse(problem: &problem::Problem<Properties>, i_p: usize) -> Vect
             }
             problem::NeighborReturn::Boundary(name, i_f, _, values) => {
                 let f = &problem.mesh.faces[i_f];
-                match name.as_str() {
+                match name {
                     "inlet" => {
                         // flux with known properties rho (values[0]) and u (values[1..=3])
                         let rho_avg = (p.properties.rho + values[0]) / 2.;
@@ -295,7 +295,7 @@ pub fn euler_energy(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
                 let boundary_E = boundary_p / (p.properties.gamma - 1.)
                     + 1. / 2. * boundary_rho * boundary_u.dot(&boundary_u);
 
-                match name.as_str() {
+                match name {
                     "inlet" => {
                         // flux with known properties rho (values[0]) and u (values[1..=3])
                         let E_avg = (p.properties.E + boundary_E) / 2.;
