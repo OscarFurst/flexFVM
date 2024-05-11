@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use crate::computational_cell::{ComputationalCell, Face, HasProperties, NeighborType};
 use crate::geometry_utils::polyhedron_center;
-use itertools::Itertools;
 use nalgebra::{Point3, Vector3};
 use vtkio::model::{Attributes, DataArray, ElementType};
 
@@ -31,6 +30,17 @@ impl<T: HasProperties> Mesh<T> {
         self.cells.len()
     }
 
+    fn vertex_index(&self, r: Point3<f64>) -> Option<usize> {
+        // returns the index of the vertex if it exists
+        // we parse the vertices in reverse order because what we are looking for is likely to be at the end of the list
+        let return_value = self
+            .vertices
+            .iter()
+            .rev()
+            .position(|v| (v - r).norm() < f64::EPSILON)?;
+        Some(self.vertices.len() - 1 - return_value)
+    }
+
     pub fn add_hex_cell(
         &mut self,
         r1: Point3<f64>,
@@ -53,11 +63,7 @@ impl<T: HasProperties> Mesh<T> {
                     );
                     current_vertices[i][j][k] = r;
                     // it this vertex exists, find its index
-                    match self
-                        .vertices
-                        .iter()
-                        .position(|v| (v - r).norm() < f64::EPSILON)
-                    {
+                    match self.vertex_index(r) {
                         Some(index) => current_vertices_index[i][j][k] = index,
                         None => {
                             let index = self.vertices.len();
@@ -127,11 +133,12 @@ impl<T: HasProperties> Mesh<T> {
         ];
         // for each of these, check if there is a face with the same vertices
         // if not, create a new face
-        let mut cell_faces = Vec::new();
+        let mut cell_faces = Vec::with_capacity(6);
         for vertices in current_faces.iter() {
             let mut found = false;
             for (index, face) in self.faces.iter_mut().enumerate() {
-                if face.vertices.iter().sorted().eq(vertices.iter().sorted()) {
+                // WARNING : this assumes that no crazy face with a different number of vertices exists
+                if face.vertices.iter().all(|p| vertices.contains(p)) {
                     cell_faces.push(index);
                     let face_distance = (face.center - cell_center).norm();
                     face.neighbor = NeighborType::Internal(cell_index, face_distance);

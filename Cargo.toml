@@ -17,7 +17,9 @@ path = "src/bin/channel_example.rs"
 
 [profile.profiling]
 inherits = "release"
-debug = true
+debug = 2
+split-debuginfo = "packed"
+incremental = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -25,7 +27,6 @@ debug = true
 nalgebra = { version = "0.32.1", features = ["serde-serialize"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-#debug-cell = "0.1.1"
 indicatif = "0.17.8"
 itertools = "0.12.1"
 vtkio = "0.6.3"
