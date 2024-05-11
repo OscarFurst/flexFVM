@@ -34,6 +34,8 @@ pub fn solve<T: HasProperties>(
         t += h0;
         it += 1;
         if output_args.frequency > 0. && it % (output_args.frequency / h0) as usize == 0 {
+            std::fs::create_dir_all(format!("{}", &output_args.filename))
+                .expect("Not able to create output directory");
             problem
                 .mesh
                 .export_to_vtk(format!("{}/step{}.vtk", &output_args.filename, it).as_str());

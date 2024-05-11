@@ -20,6 +20,10 @@ name = "copper_example"
 path = "src/bin/copper_example.rs"
 
 [[bin]]
+name = "multi_block_test"
+path = "src/bin/multi_block_test.rs"
+
+[[bin]]
 name = "channel_example"
 path = "src/bin/channel_example.rs"
 

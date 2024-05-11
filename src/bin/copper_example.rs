@@ -3,25 +3,17 @@ use flex_fvm::{
 };
 use nalgebra::{dvector, DVector, Point3};
 use std::fmt;
-use std::time::Instant;
 
 fn main() {
-    let start = Instant::now();
     let initial_mesh = create_mesh();
-    let duration = start.elapsed();
-    println!(
-        "Meshing time : {} ms. Number of cells : {}",
-        duration.as_millis(),
-        initial_mesh.n_cells()
-    );
     let output_args = solver::SolverOutputArgs {
-        frequency: 0.,
-        filename: "copper_solution".to_string(),
+        frequency: 0.0001,
+        filename: "copper_time_series".to_string(),
     };
     let _solution = solver::solve(
         &initial_mesh,
-        0.001,
-        0.000001,
+        0.01,
+        0.0000002,
         solver::euler_explicit::<Properties>,
         output_args,
     );
@@ -58,10 +50,6 @@ impl HasProperties for Properties {
     }
 }
 
-///////////////////
-/// Copper data ///
-///////////////////
-
 pub fn copper(_position: &Point3<f64>) -> Properties {
     Properties {
         T: 0.,
@@ -72,6 +60,10 @@ pub fn copper(_position: &Point3<f64>) -> Properties {
     }
 }
 
+///////////////////////
+/// Mesh Generation ///
+///////////////////////
+
 #[allow(non_snake_case)]
 pub fn create_mesh() -> problem::Problem<Properties> {
     // pack the equations
@@ -80,12 +72,14 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     // define the boundary conditions
     // left
     let bc1 = BoundaryCondition("dirichlet".to_string(), dvector![300.]);
-    // right
-    let bc2 = BoundaryCondition("neumann".to_string(), dvector![0.]);
     // front, back, top, bottom
+    let bc2 = BoundaryCondition("neumann".to_string(), dvector![0.]);
+    // right
     let bc3 = BoundaryCondition("dirichlet".to_string(), dvector![0.]);
+    // top
+    let bc4 = BoundaryCondition("neumann".to_string(), dvector![100_000.]);
 
-    let n_grid = (50, 1, 20);
+    let n_grid = (100, 1, 40);
 
     let mut block: problem::Problem<Properties> = problem::Problem::new();
     // bottom left
@@ -93,63 +87,12 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         Some(bc1.clone()),
         Some(bc2.clone()),
         Some(bc2.clone()),
-        None,
+        Some(bc3.clone()),
         Some(bc2.clone()),
-        None,
+        Some(bc4.clone()),
     ];
     block.add_zone(
         (0., 0., 0.),
-        (0.5, 1., 0.5),
-        n_grid,
-        boundary_conditions,
-        vec![heat_diffusion_equations],
-        copper,
-    );
-    // bottom right
-    let boundary_conditions = [
-        None,
-        Some(bc2.clone()),
-        Some(bc2.clone()),
-        Some(bc3.clone()),
-        Some(bc2.clone()),
-        None,
-    ];
-    block.add_zone(
-        (0.5, 0., 0.),
-        (1., 1., 0.5),
-        n_grid,
-        boundary_conditions,
-        vec![heat_diffusion_equations],
-        copper,
-    );
-    // top left
-    let boundary_conditions = [
-        Some(bc1.clone()),
-        Some(bc2.clone()),
-        None,
-        None,
-        Some(bc2.clone()),
-        Some(bc2.clone()),
-    ];
-    block.add_zone(
-        (0., 0., 0.5),
-        (0.5, 1., 1.),
-        n_grid,
-        boundary_conditions,
-        vec![heat_diffusion_equations],
-        copper,
-    );
-    // top right
-    let boundary_conditions = [
-        None,
-        Some(bc2.clone()),
-        None,
-        Some(bc3.clone()),
-        Some(bc2.clone()),
-        Some(bc2.clone()),
-    ];
-    block.add_zone(
-        (0.5, 0., 0.5),
         (1., 1., 1.),
         n_grid,
         boundary_conditions,
@@ -178,11 +121,13 @@ pub fn heat_diffusion_user(problem: &problem::Problem<Properties>, i_p: usize) -
     let mut flux = 0.;
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
+            // flux term for a normal neighbor
             problem::NeighborReturn::Internal(i_n, i_f, distance) => {
                 let n = &problem.mesh.cells[i_n];
                 let f = &problem.mesh.faces[i_f];
                 flux -= p.properties.lambda * (p.properties.T - n.properties.T) / distance * f.area;
             }
+            // flux term for a boundary condition
             problem::NeighborReturn::Boundary(name, i_f, distance, values) => {
                 let f = &problem.mesh.faces[i_f];
                 match name {
@@ -191,7 +136,7 @@ pub fn heat_diffusion_user(problem: &problem::Problem<Properties>, i_p: usize) -
                             p.properties.lambda * (p.properties.T - values[0]) / distance * f.area;
                     }
                     "neumann" => {
-                        flux -= values[0];
+                        flux -= values[0] * f.area;
                     }
                     _ => {
                         panic!("Unknown boundary condition : {}", name);
