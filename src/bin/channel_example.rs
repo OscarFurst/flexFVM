@@ -18,7 +18,12 @@ use std::fmt;
 
 fn main() {
     let initial_mesh = create_mesh();
-    let solution = solver::solve(&initial_mesh, 20., 0.0001);
+    let solution = solver::solve(
+        &initial_mesh,
+        20.,
+        0.01,
+        solver::runge_kutta_4::<Properties>,
+    );
     solution.mesh.export_to_vtk("channel_solution.vtk");
 }
 
@@ -92,21 +97,22 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let boundary_conditions: [Option<BoundaryCondition>; 6] = [
         Some(bc1),
         Some(bc2.clone()),
-        Some(bc2.clone()),
+        None,
         Some(bc3),
         Some(bc2.clone()),
-        Some(bc2),
+        None,
     ];
     let mut air = air();
     air.u = Vector3::new(1., 0., 0.);
-    let n_grid = (1000, 30, 1);
+    // Reference uses periodic boundary conditions wich allows for a smaller mesh of 128x128x1
+    let n_grid = (128 * 10, 128, 1);
     let mut block: problem::Problem<Properties> = problem::Problem::new();
     let mass_eq = generate_equation_structure!(get_rho, update_rho, euler_mass, 1);
     let impulse_eq = generate_equation_structure!(get_impulse, update_impulse, euler_impulse, 3);
     let energy_eq = generate_equation_structure!(get_energy, update_energy, euler_energy, 1);
     block.add_zone(
         (0., 0., 0.),
-        (10., 0.3, 0.01),
+        (1. * 10., 1., 1.),
         n_grid,
         boundary_conditions,
         vec![mass_eq, impulse_eq, energy_eq],

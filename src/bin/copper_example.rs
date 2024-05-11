@@ -14,7 +14,12 @@ fn main() {
         duration.as_millis(),
         initial_mesh.n_cells()
     );
-    let solution = solver::solve(&initial_mesh, 0.001, 0.000001);
+    let solution = solver::solve(
+        &initial_mesh,
+        0.001,
+        0.000001,
+        solver::euler_explicit::<Properties>,
+    );
     solution.mesh.export_to_vtk("copper_solution.vtk");
 }
 
