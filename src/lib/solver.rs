@@ -4,11 +4,17 @@ use indicatif::ProgressBar;
 use nalgebra::DVector;
 use std::time::Instant;
 
+pub struct SolverOutputArgs {
+    pub frequency: f64,
+    pub filename: String,
+}
+
 pub fn solve<T: HasProperties>(
     initial_problem: &Problem<T>,
     t_end: f64,
     h0: f64,
     solver: fn(&mut Problem<T>, f64, &mut Vec<DVector<f64>>, f64) -> Vec<DVector<f64>>,
+    output_args: SolverOutputArgs,
 ) -> Problem<T> {
     let mut problem = initial_problem.clone();
     let mut t = 0.;
@@ -27,6 +33,11 @@ pub fn solve<T: HasProperties>(
         };
         t += h0;
         it += 1;
+        if output_args.frequency > 0. && it % (output_args.frequency / h0) as usize == 0 {
+            problem
+                .mesh
+                .export_to_vtk(format!("{}/step{}.vtk", &output_args.filename, it).as_str());
+        }
     }
     pb.finish();
     let duration = start.elapsed();
@@ -35,7 +46,12 @@ pub fn solve<T: HasProperties>(
         duration.as_millis(),
         it
     );
-    println!("Exporting results ...");
+    if output_args.frequency == 0. {
+        println!("Exporting results ...");
+        problem
+            .mesh
+            .export_to_vtk(format!("{}.vtk", &output_args.filename).as_str());
+    }
     problem
 }
 

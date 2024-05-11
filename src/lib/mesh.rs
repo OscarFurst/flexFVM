@@ -175,15 +175,15 @@ impl<T: HasProperties> Mesh<T> {
 
     pub fn get_face_on_plane(
         &mut self,
-        point: Point3<f64>,
-        normal: Vector3<f64>,
+        point: &Point3<f64>,
+        normal: &Vector3<f64>,
         cell_index: usize,
     ) -> Option<&mut Face> {
         // find the face that is on the plane defined by the point and normal
         let cell = &mut self.cells[cell_index];
         for face_index in cell.faces.iter() {
             let face = &self.faces[*face_index];
-            if (face.center - point).dot(&normal).abs() < f64::EPSILON {
+            if (face.center - point).dot(normal).abs() < f64::EPSILON {
                 return Some(&mut self.faces[*face_index]);
             }
         }

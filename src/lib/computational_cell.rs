@@ -1,6 +1,6 @@
 // for now all cells are rectangular parallelepipeds
-use crate::geometry_utils::*;
 use crate::mesh::Mesh;
+use crate::{geometry_utils::*, problem};
 use nalgebra::{Point3, Vector3};
 use std::fmt;
 
@@ -191,5 +191,9 @@ impl Face {
 
     pub fn is_owner(&self, i_cell: usize) -> bool {
         self.owner.0 == i_cell
+    }
+
+    pub fn get_zone<T: HasProperties>(&self, problem: &problem::Problem<T>) -> usize {
+        problem.mesh.cells[self.owner.0].zone
     }
 }

@@ -48,7 +48,7 @@ impl<T: HasProperties> Problem<T> {
         (nx, ny, nz): (usize, usize, usize),
         bc: [Option<BoundaryCondition>; 6],
         equations: Vec<equation::Equation<T>>,
-        internal_props: T,
+        internal_props: fn(&Point3<f64>) -> T,
     ) -> &mut Problem<T> {
         let zone_id = self.equation_containers.len();
         // TODO: I could not think of an elegant way to pass boundary conditions
@@ -82,6 +82,18 @@ impl<T: HasProperties> Problem<T> {
                 boundaries.push((boundary_order[i].0, boundary_order[i].1, None, usize::MAX));
             }
         }
+        // equation container is already set here because it is needed to set up the boundary conditions
+        let mut used_bc: Vec<BoundaryCondition> = Vec::new();
+        for b in boundaries.clone() {
+            if let (_, _, Some(bb), _) = b {
+                used_bc.push(bb);
+            }
+        }
+        self.equation_containers.push(EquationContainer {
+            cell_indices: vec![],
+            equations,
+            boundary_conditions: used_bc,
+        });
         // loop that creates one cell at a time
         println!("🔗 Meshing ...");
         let pb = ProgressBar::new((nx) as u64);
@@ -90,96 +102,129 @@ impl<T: HasProperties> Problem<T> {
             pb.inc(1);
             for j in 0..ny {
                 for k in 0..nz {
+                    let cell_origin = origin + ex * i as f64 + ey * j as f64 + ez * k as f64;
+                    let cell_ending =
+                        origin + ex * (i + 1) as f64 + ey * (j + 1) as f64 + ez * (k + 1) as f64;
+                    let cell_center = cell_origin + (cell_ending - cell_origin) / 2.0;
                     let cell_index = self.mesh.add_hex_cell(
-                        origin + ex * i as f64 + ey * j as f64 + ez * k as f64,
-                        origin + ex * (i + 1) as f64 + ey * (j + 1) as f64 + ez * (k + 1) as f64,
-                        internal_props,
+                        cell_origin,
+                        cell_ending,
+                        internal_props(&cell_center),
                         zone_id,
                     );
                     zone_cell_indices.push(cell_index);
                     // check if at boundary. if so, create boundary condition
                     if i == 0 {
-                        if let (point, normal, Some(_), index) = boundaries[0] {
-                            // unwrap here because something is wrong if this fails
-                            let boundary_face = self
-                                .mesh
-                                .get_face_on_plane(point, normal, cell_index)
-                                .unwrap();
-                            // we might need to do something more complex here in the future
-                            boundary_face.neighbor = NeighborType::Boundary(index);
-                        }
+                        self.setup_boundary_contidions(cell_index, &boundaries[0]);
                     }
                     if j == 0 {
-                        if let (point, normal, Some(_), index) = boundaries[1] {
-                            // unwrap here because something is wrong if this fails
-                            let boundary_face = self
-                                .mesh
-                                .get_face_on_plane(point, normal, cell_index)
-                                .unwrap();
-                            // we might need to do something more complex here in the future
-                            boundary_face.neighbor = NeighborType::Boundary(index);
-                        }
+                        self.setup_boundary_contidions(cell_index, &boundaries[1]);
                     }
                     if k == 0 {
-                        if let (point, normal, Some(_), index) = boundaries[2] {
-                            // unwrap here because something is wrong if this fails
-                            let boundary_face = self
-                                .mesh
-                                .get_face_on_plane(point, normal, cell_index)
-                                .unwrap();
-                            // we might need to do something more complex here in the future
-                            boundary_face.neighbor = NeighborType::Boundary(index);
-                        }
+                        self.setup_boundary_contidions(cell_index, &boundaries[2]);
                     }
                     if i == nx - 1 {
-                        if let (point, normal, Some(_), index) = boundaries[3] {
-                            // unwrap here because something is wrong if this fails
-                            let boundary_face = self
-                                .mesh
-                                .get_face_on_plane(point, normal, cell_index)
-                                .unwrap();
-                            // we might need to do something more complex here in the future
-                            boundary_face.neighbor = NeighborType::Boundary(index);
-                        }
+                        self.setup_boundary_contidions(cell_index, &boundaries[3]);
                     }
                     if j == ny - 1 {
-                        if let (point, normal, Some(_), index) = boundaries[4] {
-                            // unwrap here because something is wrong if this fails
-                            let boundary_face = self
-                                .mesh
-                                .get_face_on_plane(point, normal, cell_index)
-                                .unwrap();
-                            // we might need to do something more complex here in the future
-                            boundary_face.neighbor = NeighborType::Boundary(index);
-                        }
+                        self.setup_boundary_contidions(cell_index, &boundaries[4]);
                     }
                     if k == nz - 1 {
-                        if let (point, normal, Some(_), index) = boundaries[5] {
-                            // unwrap here because something is wrong if this fails
-                            let boundary_face = self
-                                .mesh
-                                .get_face_on_plane(point, normal, cell_index)
-                                .unwrap();
-                            // we might need to do something more complex here in the future
-                            boundary_face.neighbor = NeighborType::Boundary(index);
-                        }
+                        self.setup_boundary_contidions(cell_index, &boundaries[5]);
                     }
                 }
             }
         }
         pb.finish();
-        let mut used_bc: Vec<BoundaryCondition> = Vec::new();
-        for b in boundaries {
-            if let (_, _, Some(bb), _) = b {
-                used_bc.push(bb);
+        self.equation_containers[zone_id].cell_indices = zone_cell_indices;
+        self
+    }
+
+    fn setup_boundary_contidions(
+        &mut self,
+        cell_index: usize,
+        boundary: &(Point3<f64>, Vector3<f64>, Option<BoundaryCondition>, usize),
+    ) {
+        // TODO : this function is cursed, needs to be cleaned up.
+        if let (point, normal, Some(BoundaryCondition(name, values)), index) = boundary {
+            // unwrap here because something is wrong if this fails
+            let face_center = self
+                .mesh
+                .get_face_on_plane(point, normal, cell_index)
+                .unwrap()
+                .center;
+            let mut neighb = NeighborType::Nil;
+            match name as &str {
+                "periodic" => {
+                    // search for the other face with the same boundary condition
+                    let mut found_twin = false;
+                    if self.mesh.faces.len() != 0 {
+                        let twin_direction = Vector3::new(values[0], values[1], values[2]);
+                        for i in 0..self.mesh.faces.len() {
+                            if let NeighborType::Boundary(face_bc_index) =
+                                self.mesh.faces[i].neighbor
+                            {
+                                if self.equation_containers[self.mesh.faces[i].get_zone(self)]
+                                    .boundary_conditions[face_bc_index]
+                                    .0
+                                    == "periodic"
+                                {
+                                    let face = &mut self.mesh.faces[i];
+                                    // we found another face with a periodic BC, now we need to check if it is the twin face
+                                    if (face.center - face_center).cross(&twin_direction).norm()
+                                        < f64::EPSILON
+                                    {
+                                        // in this case we have to set up two faces instead of jsut one !
+                                        face.neighbor = NeighborType::Internal(
+                                            cell_index,
+                                            (face.center - self.mesh.cells[face.owner.0].r).norm(),
+                                        );
+                                        found_twin = true;
+                                        neighb = NeighborType::Internal(
+                                            i,
+                                            (self.mesh.cells[cell_index].r - face.center).norm(),
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !found_twin {
+                        neighb = NeighborType::Boundary(*index);
+                    }
+                }
+                _ => {
+                    neighb = NeighborType::Boundary(*index);
+                }
+            }
+            let boundary_face = self
+                .mesh
+                .get_face_on_plane(point, normal, cell_index)
+                .unwrap();
+            boundary_face.neighbor = neighb;
+            // make sure a boundary was assigned correctly
+            if matches!(boundary_face.neighbor, NeighborType::Nil) {
+                panic!("Boundary condition not assigned correctly");
             }
         }
-        self.equation_containers.push(EquationContainer {
-            cell_indices: zone_cell_indices,
-            equations,
-            boundary_conditions: used_bc,
-        });
-        self
+    }
+
+    /// Checks if the mesh boundary condition was properly set up.
+    /// Since the boundary condition requires a 1-to-1 pairing of faces,
+    /// no face should have a NeighborType::Boundary(index) with the index
+    /// of a periodic boundary condition.
+    pub fn check_periodic_bc(&self) -> bool {
+        for face in self.mesh.faces.iter() {
+            if let NeighborType::Boundary(index) = face.neighbor {
+                if self.equation_containers[face.get_zone(self)].boundary_conditions[index].0
+                    == "periodic"
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     pub fn get_state(&self) -> Vec<DVector<f64>> {

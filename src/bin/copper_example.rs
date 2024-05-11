@@ -1,7 +1,7 @@
 use flex_fvm::{
     computational_cell::HasProperties, equation::*, generate_equation_structure, problem, solver,
 };
-use nalgebra::{dvector, DVector};
+use nalgebra::{dvector, DVector, Point3};
 use std::fmt;
 use std::time::Instant;
 
@@ -14,13 +14,17 @@ fn main() {
         duration.as_millis(),
         initial_mesh.n_cells()
     );
-    let solution = solver::solve(
+    let output_args = solver::SolverOutputArgs {
+        frequency: 0.,
+        filename: "copper_solution".to_string(),
+    };
+    let _solution = solver::solve(
         &initial_mesh,
         0.001,
         0.000001,
         solver::euler_explicit::<Properties>,
+        output_args,
     );
-    solution.mesh.export_to_vtk("copper_solution.vtk");
 }
 
 ////////////////////////
@@ -58,7 +62,7 @@ impl HasProperties for Properties {
 /// Copper data ///
 ///////////////////
 
-pub fn copper() -> Properties {
+pub fn copper(_position: &Point3<f64>) -> Properties {
     Properties {
         T: 0.,
         rho: 9000.,
@@ -99,7 +103,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         n_grid,
         boundary_conditions,
         vec![heat_diffusion_equations],
-        copper(),
+        copper,
     );
     // bottom right
     let boundary_conditions = [
@@ -116,7 +120,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         n_grid,
         boundary_conditions,
         vec![heat_diffusion_equations],
-        copper(),
+        copper,
     );
     // top left
     let boundary_conditions = [
@@ -133,7 +137,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         n_grid,
         boundary_conditions,
         vec![heat_diffusion_equations],
-        copper(),
+        copper,
     );
     // top right
     let boundary_conditions = [
@@ -150,7 +154,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         n_grid,
         boundary_conditions,
         vec![heat_diffusion_equations],
-        copper(),
+        copper,
     );
     block
 }

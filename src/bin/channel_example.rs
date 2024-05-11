@@ -4,7 +4,7 @@ use flex_fvm::{
     equation::{BoundaryCondition, Equation},
     generate_equation_structure, solver,
 };
-use nalgebra::{dvector, DVector, Matrix3, Vector3};
+use nalgebra::{dvector, DVector, Matrix3, Point3, Vector3};
 use std::fmt;
 
 // This example implements the equations found at https://levelup.gitconnected.com/create-your-own-finite-volume-fluid-simulation-with-python-8f9eab0b8305
@@ -18,13 +18,17 @@ use std::fmt;
 
 fn main() {
     let initial_mesh = create_mesh();
-    let solution = solver::solve(
+    let output_args = solver::SolverOutputArgs {
+        frequency: 0.02,
+        filename: "channel_solution".to_string(),
+    };
+    let _solution = solver::solve(
         &initial_mesh,
-        20.,
-        0.01,
+        2.,
+        0.001,
         solver::runge_kutta_4::<Properties>,
+        output_args,
     );
-    solution.mesh.export_to_vtk("channel_solution.vtk");
 }
 
 ///////////////////////
@@ -78,9 +82,33 @@ pub fn air() -> Properties {
     Properties {
         rho,
         rho_u: rho * u,
-        E: p / (gamma - 1.) + 1. / 2. * rho * u.dot(&u),
+        E: p / (gamma - 1.) + 0.5 * rho * u.dot(&u),
         u,
-        e: p / (gamma - 1.) / rho + 1. / 2. * u.dot(&u),
+        e: p / (gamma - 1.) / rho + 0.5 * u.dot(&u),
+        p,
+        gamma,
+    }
+}
+
+fn properties_generator(position: &Point3<f64>) -> Properties {
+    let w0 = 0.1;
+    let sigma = 0.05f64.powi(2);
+    let rho = 1. + (position.y - 0.5).abs().clamp(0., 0.25);
+    let u = Vector3::new(
+        -0.5 + (position.y - 0.5).abs().clamp(0., 0.25),
+        w0 * f64::sin(4. * std::f64::consts::PI * position.x)
+            * (f64::exp(-(position.y - 0.25).powi(2) / (2. * sigma))
+                + f64::exp(-(position.y - 0.75).powi(2) / (2. * sigma))),
+        0.,
+    );
+    let p = 2.5;
+    let gamma = 1.4;
+    Properties {
+        rho,
+        rho_u: rho * u,
+        E: p / (gamma - 1.) + 0.5 * rho * u.dot(&u),
+        u,
+        e: p / (gamma - 1.) / rho + 0.5 * u.dot(&u),
         p,
         gamma,
     }
@@ -91,9 +119,9 @@ pub fn air() -> Properties {
 ///////////////////
 
 pub fn create_mesh() -> problem::Problem<Properties> {
-    let bc1 = BoundaryCondition("inlet".to_string(), dvector![1.3, 1.1, 0., 0., 100_000.]);
+    let bc1 = BoundaryCondition("periodic".to_string(), dvector![1., 0., 0.]);
     let bc2 = BoundaryCondition("wall".to_string(), dvector![0.]);
-    let bc3 = BoundaryCondition("fully_developed".to_string(), dvector![0.]);
+    let bc3 = BoundaryCondition("periodic".to_string(), dvector![-1., 0., 0.]);
     let boundary_conditions: [Option<BoundaryCondition>; 6] = [
         Some(bc1),
         Some(bc2.clone()),
@@ -102,22 +130,20 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         Some(bc2.clone()),
         None,
     ];
-    let mut air = air();
-    air.u = Vector3::new(1., 0., 0.);
-    // Reference uses periodic boundary conditions wich allows for a smaller mesh of 128x128x1
-    let n_grid = (128 * 10, 128, 1);
+    let n_grid = (128, 128, 1);
     let mut block: problem::Problem<Properties> = problem::Problem::new();
     let mass_eq = generate_equation_structure!(get_rho, update_rho, euler_mass, 1);
     let impulse_eq = generate_equation_structure!(get_impulse, update_impulse, euler_impulse, 3);
     let energy_eq = generate_equation_structure!(get_energy, update_energy, euler_energy, 1);
     block.add_zone(
         (0., 0., 0.),
-        (1. * 10., 1., 1.),
+        (1., 1., 1.),
         n_grid,
         boundary_conditions,
         vec![mass_eq, impulse_eq, energy_eq],
-        air,
+        properties_generator,
     );
+    assert!(block.check_periodic_bc());
     block
 }
 
