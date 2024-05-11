@@ -288,15 +288,15 @@ pub fn euler_energy(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
             }
             problem::NeighborReturn::Boundary(name, i_f, _, values) => {
                 let f = &problem.mesh.faces[i_f];
-                let boundary_rho = values[0];
-                let boundary_u = Vector3::new(values[1], values[2], values[3]);
-                let boundary_p = values[4];
-                // WARNING : gamma should actually also be passed as part of the boundary condition data
-                let boundary_E = boundary_p / (p.properties.gamma - 1.)
-                    + 1. / 2. * boundary_rho * boundary_u.dot(&boundary_u);
 
                 match name {
                     "inlet" => {
+                        let boundary_rho = values[0];
+                        let boundary_u = Vector3::new(values[1], values[2], values[3]);
+                        let boundary_p = values[4];
+                        // WARNING : gamma should actually also be passed as part of the boundary condition data
+                        let boundary_E = boundary_p / (p.properties.gamma - 1.)
+                            + 1. / 2. * boundary_rho * boundary_u.dot(&boundary_u);
                         // flux with known properties rho (values[0]) and u (values[1..=3])
                         let E_avg = (p.properties.E + boundary_E) / 2.;
                         let p_avg = (p.properties.p + boundary_p) / 2.;
