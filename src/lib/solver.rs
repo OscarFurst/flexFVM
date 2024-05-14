@@ -7,6 +7,8 @@ use std::time::Instant;
 pub struct SolverOutputArgs {
     pub frequency: f64,
     pub filename: String,
+    pub print_csv: bool,
+    pub print_vtk: bool,
 }
 
 pub fn solve<T: HasProperties>(
@@ -24,9 +26,8 @@ pub fn solve<T: HasProperties>(
     let mut x = initial_problem.get_state();
     let start = Instant::now();
     println!("👩‍🔬 Solving ...");
-    if output_args.frequency > 0. {
-        std::fs::remove_dir_all(format!("{}", &output_args.filename))
-            .expect("Not able to remove output directory");
+    if output_args.frequency > 0. && (output_args.print_csv || output_args.print_vtk) {
+        std::fs::remove_dir_all(format!("{}", &output_args.filename)).ok();
         std::fs::create_dir_all(format!("{}", &output_args.filename))
             .expect("Not able to create output directory");
     }
@@ -40,9 +41,20 @@ pub fn solve<T: HasProperties>(
         t += h0;
         it += 1;
         if output_args.frequency > 0. && it % (output_args.frequency / h0) as usize == 0 {
-            problem
-                .mesh
-                .export_to_vtk(format!("{}/step{}.vtk", &output_args.filename, it).as_str());
+            if output_args.print_vtk {
+                problem
+                    .mesh
+                    .export_to_vtk(format!("{}/step{}.vtk", &output_args.filename, it).as_str());
+            }
+            if output_args.print_csv {
+                let decimals = -f64::log10(h0).ceil() as usize;
+                problem
+                    .mesh
+                    .export_csv(
+                        format!("{}/time{:.decimals$}.csv", &output_args.filename, t).as_str(),
+                    )
+                    .expect("Not able to export csv");
+            }
         }
     }
     pb.finish();

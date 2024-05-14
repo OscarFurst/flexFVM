@@ -7,13 +7,15 @@ use std::fmt;
 fn main() {
     let initial_mesh = create_mesh();
     let output_args = solver::SolverOutputArgs {
-        frequency: 0.05,
+        frequency: 0.1,
         filename: "burger_time_series".to_string(),
+        print_csv: true,
+        print_vtk: false,
     };
     let _solution = solver::solve(
         &initial_mesh,
-        10.,
-        0.00001,
+        50.,
+        0.0001,
         solver::euler_explicit::<Properties>,
         output_args,
     );
@@ -79,8 +81,8 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     // bottom left
     let boundary_conditions = [Some(bc1), None, None, Some(bc2), None, None];
     block.add_zone(
-        (-3., 0., 0.),
-        (3., 1., 1.),
+        (-7., 0., 0.),
+        (7., 1., 1.),
         n_grid,
         boundary_conditions,
         vec![heat_diffusion_equations],

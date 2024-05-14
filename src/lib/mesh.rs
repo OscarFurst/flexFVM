@@ -1,4 +1,7 @@
+use std::error::Error;
+use std::fs::File;
 use std::path::PathBuf;
+use std::vec;
 
 use crate::computational_cell::{ComputationalCell, Face, HasProperties, NeighborType};
 use crate::geometry_utils::polyhedron_center;
@@ -296,6 +299,34 @@ impl<T: HasProperties> Mesh<T> {
         vtk_file
             .export_ascii(file_path)
             .expect("Failed to export mesh to VTK");
+    }
+
+    pub fn export_csv(&self, filename: &str) -> Result<(), Box<dyn Error>> {
+        // create the file
+        File::create(filename)?;
+        let mut wtr = csv::Writer::from_path(filename)?;
+
+        // When writing records without Serde, the header record is written just
+        // like any other record.
+        let mut header = vec!["x", "y", "z"];
+        let headerdata = self.cells[0].properties.export();
+        for (label, _) in headerdata.iter() {
+            header.push(label);
+        }
+        wtr.write_record(&header)?;
+        for cell in self.cells.iter() {
+            let mut record = vec![
+                cell.r.x.to_string(),
+                cell.r.y.to_string(),
+                cell.r.z.to_string(),
+            ];
+            for (_, value) in cell.properties.export() {
+                record.push(value.to_string());
+            }
+            wtr.write_record(&record)?;
+        }
+        wtr.flush()?;
+        Ok(())
     }
 }
 
