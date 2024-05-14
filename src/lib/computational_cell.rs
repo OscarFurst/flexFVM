@@ -193,6 +193,14 @@ impl Face {
         self.owner.0 == i_cell
     }
 
+    pub fn out_normal(&self, i_cell: usize) -> Vector3<f64> {
+        if self.is_owner(i_cell) {
+            self.normal.clone()
+        } else {
+            -self.normal.clone()
+        }
+    }
+
     pub fn get_zone<T: HasProperties>(&self, problem: &problem::Problem<T>) -> usize {
         problem.mesh.cells[self.owner.0].zone
     }
