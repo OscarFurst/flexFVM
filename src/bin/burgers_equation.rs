@@ -40,7 +40,7 @@ impl fmt::Debug for Properties {
 }
 
 impl HasProperties for Properties {
-    fn update(&mut self) {
+    fn update_primitive(&mut self, volume: f64) {
         // here we can update derived variables if needed
     }
 
@@ -115,7 +115,7 @@ fn upwind<'a>(left: &'a Properties, right: &'a Properties, normal: Vector3<f64>)
 }
 
 pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> Vector3<f64> {
-    // TODO : deal with boundary conditions
+    // du/dt + div(u^2)/2 = 0
     let p = &problem.mesh.cells[i_p];
     let mut advective_flux = Vector3::zeros();
     for neighbor in problem.neighbors(i_p) {

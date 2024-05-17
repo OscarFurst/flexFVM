@@ -26,11 +26,26 @@ pub struct ComputationalCell<T: HasProperties> {
 }
 
 pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
-    fn update(&mut self); // this function only updates derived variables, computed variables are updated by the equations
+    /// update_primitive is called after the new solution variables are computed.
+    /// It is meant to update the properties that are directly derived from the solution variables
+    fn update_primitive(&mut self, volume: f64);
+    /// update_integral is called after the mesh is generated
+    /// It is meant to update the properties that are derived from the geometry of the cell,
+    /// so that densities can be used in the problem initialization while the mass is the actual
+    /// variable that is solved for.
+    fn update_integral(&mut self, volume: f64) {}
+    /// export is called when the solution is exported to a file.
     fn export(&self) -> Vec<(String, f64)>;
 }
 
 impl<T: HasProperties> ComputationalCell<T> {
+    pub fn update_integral(&mut self) {
+        self.properties.update_integral(self.volume);
+    }
+
+    pub fn update_primitive(&mut self) {
+        self.properties.update_primitive(self.volume);
+    }
     /// Creates a new computational cell from a list of faces.
     /// The cell is not stored in the mesh, only its properties are initialized.
     pub fn new(mesh: &Mesh<T>, faces: Vec<usize>, properties: T, zone: usize) -> Self {

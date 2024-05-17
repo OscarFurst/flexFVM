@@ -207,6 +207,13 @@ impl<T: HasProperties> Mesh<T> {
             .collect::<Vec<Vec<Point3<f64>>>>()
     }
 
+    pub fn update_integral(&mut self) {
+        // takes the solution and updates every cell with it
+        for cell in self.cells.iter_mut() {
+            cell.update_integral()
+        }
+    }
+
     /// Exports the mesh to the VTK format.
     /// vtkio crate support for polyhedra is not yet implemented.
     /// This function will only work for hexahedra.
@@ -347,7 +354,8 @@ mod tests {
         h: f64,
     }
     impl HasProperties for Properties {
-        fn update(&mut self) {}
+        fn update_primitive(&mut self, _volume: f64) {}
+        fn update_integral(&mut self, _volume: f64) {}
         fn export(&self) -> Vec<(String, f64)> {
             vec![("T".to_string(), self.T), ("h".to_string(), self.h)]
         }

@@ -169,20 +169,20 @@ impl<T: HasProperties> Problem<T> {
                                     .0
                                     == "periodic"
                                 {
-                                    let face = &mut self.mesh.faces[i];
                                     // we found another face with a periodic BC, now we need to check if it is the twin face
+                                    let face = &mut self.mesh.faces[i];
                                     if (face.center - face_center).cross(&twin_direction).norm()
                                         < f64::EPSILON
                                     {
+                                        found_twin = true;
                                         // in this case we have to set up two faces instead of jsut one !
                                         face.neighbor = NeighborType::Internal(
                                             cell_index,
-                                            (face.center - self.mesh.cells[face.owner.0].r).norm(),
+                                            (face.center - self.mesh.cells[cell_index].r).norm(),
                                         );
-                                        found_twin = true;
                                         neighb = NeighborType::Internal(
-                                            i,
-                                            (self.mesh.cells[cell_index].r - face.center).norm(),
+                                            face.owner.0,
+                                            (self.mesh.cells[face.owner.0].r - face.center).norm(),
                                         );
                                         break;
                                     }
@@ -195,6 +195,7 @@ impl<T: HasProperties> Problem<T> {
                     }
                 }
                 _ => {
+                    // for every other boundary condition, the BC index is enough
                     neighb = NeighborType::Boundary(*index);
                 }
             }
@@ -216,8 +217,8 @@ impl<T: HasProperties> Problem<T> {
     /// of a periodic boundary condition.
     pub fn check_periodic_bc(&self) -> bool {
         for face in self.mesh.faces.iter() {
-            if let NeighborType::Boundary(index) = face.neighbor {
-                if self.equation_containers[face.get_zone(self)].boundary_conditions[index].0
+            if let NeighborType::Boundary(bc_index) = face.neighbor {
+                if self.equation_containers[face.get_zone(self)].boundary_conditions[bc_index].0
                     == "periodic"
                 {
                     return false;
@@ -225,6 +226,23 @@ impl<T: HasProperties> Problem<T> {
             }
         }
         true
+    }
+
+    pub fn sum_conservation_variables(&self) -> Vec<DVector<f64>> {
+        let mut sums: Vec<DVector<f64>> = Vec::new();
+        for layer in self.equation_containers.iter() {
+            for eq in layer.equations.iter() {
+                sums.push(
+                    layer
+                        .cell_indices
+                        .iter()
+                        .map(|&i| &self.mesh.cells[i])
+                        .map(|cell| (eq.get)(&cell.properties))
+                        .sum(),
+                );
+            }
+        }
+        sums
     }
 
     pub fn get_state(&self) -> Vec<DVector<f64>> {
@@ -262,7 +280,7 @@ impl<T: HasProperties> Problem<T> {
                     (eq.lhs)(&mut self.mesh.cells[*i_cell].properties, &x[i]);
                     i += 1;
                 }
-                self.mesh.cells[*i_cell].properties.update()
+                self.mesh.cells[*i_cell].update_primitive()
             }
         }
     }

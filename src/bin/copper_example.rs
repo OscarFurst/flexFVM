@@ -9,6 +9,8 @@ fn main() {
     let output_args = solver::SolverOutputArgs {
         frequency: 0.0001,
         filename: "copper_time_series".to_string(),
+        print_csv: false,
+        print_vtk: true,
     };
     let _solution = solver::solve(
         &initial_mesh,
@@ -41,7 +43,7 @@ impl fmt::Debug for Properties {
 }
 
 impl HasProperties for Properties {
-    fn update(&mut self) {
+    fn update_primitive(&mut self, volume: f64) {
         // here we can update derived variables if needed
     }
 

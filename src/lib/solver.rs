@@ -24,23 +24,49 @@ pub fn solve<T: HasProperties>(
 
     // x contains the initial solution
     let mut x = initial_problem.get_state();
-    let start = Instant::now();
-    println!("👩‍🔬 Solving ...");
+    let mut last_plotted_time = 0.;
+    // we initialize the output directory if needed
     if output_args.frequency > 0. && (output_args.print_csv || output_args.print_vtk) {
         std::fs::remove_dir_all(format!("{}", &output_args.filename)).ok();
         std::fs::create_dir_all(format!("{}", &output_args.filename))
             .expect("Not able to create output directory");
+        // export initial state
+        if output_args.print_vtk {
+            problem
+                .mesh
+                .export_to_vtk(format!("{}/step0.vtk", &output_args.filename).as_str());
+        }
     }
+    // make a nice progress bar
+    println!("👩‍🔬 Solving ...");
     let pb = ProgressBar::new((t_end / h0) as u64);
+    pb.set_style(
+        indicatif::ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
+            .unwrap()
+            .progress_chars("##-"),
+    );
+    // main loop
+    let start = Instant::now();
     while t < t_end {
+        // update progress bar
         pb.inc(1);
+        let mut cons_msg = String::new();
+        for el in problem.sum_conservation_variables() {
+            for val in el.iter() {
+                cons_msg.push_str(&format!("  {:>+7.5} ", val));
+            }
+        }
+        pb.set_message(format!("t = {:.2} s, convervation:", t) + cons_msg.as_str());
+        // solve
         let y = (solver)(&mut problem, t, &mut x, h0);
         if stop_criterial(&y, t) {
             break;
         };
         t += h0;
         it += 1;
-        if output_args.frequency > 0. && it % (output_args.frequency / h0) as usize == 0 {
+        // output
+        if output_args.frequency > 0. && t > last_plotted_time + output_args.frequency {
             if output_args.print_vtk {
                 problem
                     .mesh
@@ -55,6 +81,7 @@ pub fn solve<T: HasProperties>(
                     )
                     .expect("Not able to export csv");
             }
+            last_plotted_time = t;
         }
     }
     pb.finish();
@@ -124,7 +151,10 @@ pub fn runge_kutta_4<T: HasProperties>(
     let mut y = x.clone();
     for i in 0..x.len() {
         for j in 0..x[i].len() {
-            y[i][j] += h / 6. * (k1[i][j] + 2. * k2[i][j] + 2. * k3[i][j] + k4[i][j]);
+            // final derivative
+            y[i][j] = (k1[i][j] + 2. * k2[i][j] + 2. * k3[i][j] + k4[i][j]) / 6.;
+            // final solution
+            x[i][j] += h * y[i][j];
         }
     }
     y
