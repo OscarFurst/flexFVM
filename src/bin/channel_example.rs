@@ -1,3 +1,4 @@
+use flex_fvm::computational_cell::HasProperties;
 use flex_fvm::problem;
 use flex_fvm::{
     computational_cell,
@@ -9,6 +10,7 @@ use std::fmt;
 
 // This example implements the equations found at https://levelup.gitconnected.com/create-your-own-finite-volume-fluid-simulation-with-python-8f9eab0b8305
 // With some clarifications from https://www.clawpack.org/riemann_book/html/Euler.html
+// Good explanation of numerical scheme can be found here : https://www2.math.ethz.ch/education/bachelor/lectures/fs2014/other/n_dgl/chap8.pdf
 // The equations are:
 // d(rho)/dt + div(rho * u) = 0
 // d(rho*u) + div(rho * u x u + p * I) = 0
@@ -21,11 +23,13 @@ fn main() {
     let output_args = solver::SolverOutputArgs {
         frequency: 0.02,
         filename: "channel_solution".to_string(),
+        print_csv: false,
+        print_vtk: true,
     };
     let _solution = solver::solve(
         &initial_mesh,
         2.,
-        0.001,
+        0.0001,
         solver::runge_kutta_4::<Properties>,
         output_args,
     );
@@ -38,13 +42,13 @@ fn main() {
 #[allow(non_snake_case)]
 #[derive(Default, Clone, Copy)]
 pub struct Properties {
-    // conservative properties
-    pub rho: f64,            // kg/m3
-    pub rho_u: Vector3<f64>, // kg/m2/s
-    pub E: f64,              // J/m3
-    // derived properties
+    // conserved properties
+    pub mass: f64,              // kg
+    pub momentum: Vector3<f64>, // kg/m/s
+    pub energy: f64,            // J
+    // primitive properties
+    pub rho: f64,        // kg/m3
     pub u: Vector3<f64>, // m/s
-    pub e: f64,          // J/kg
     pub p: f64,          // Pa
     // material properties
     pub gamma: f64, // adiabatic index
@@ -57,60 +61,52 @@ impl fmt::Debug for Properties {
 }
 
 impl computational_cell::HasProperties for Properties {
-    fn update(&mut self) {
-        self.u = self.rho_u / self.rho;
-        self.e = self.E / self.rho - 1. / 2. * self.u.dot(&self.u);
-        self.p = (self.gamma - 1.) * self.rho * self.e;
+    fn update_primitive(&mut self, volume: f64) {
+        // conserved properties : mass, momentum, energy
+        self.rho = self.mass / volume;
+        self.u = self.momentum / self.rho / volume;
+        self.p = (self.energy / volume - 0.5 * self.rho * self.u.dot(&self.u)) * (self.gamma - 1.);
+    }
+
+    fn update_integral(&mut self, volume: f64) {
+        // conserved properties : mass, momentum, energy
+        self.mass = self.rho * volume;
+        self.momentum = self.rho * self.u * volume;
+        self.energy = (self.p / (self.gamma - 1.) + 0.5 * self.rho * self.u.dot(&self.u)) * volume;
     }
 
     fn export(&self) -> Vec<(String, f64)> {
         vec![
+            ("rho".to_string(), self.rho),
             ("ux".to_string(), self.u[0]),
             ("uy".to_string(), self.u[1]),
             ("uz".to_string(), self.u[2]),
             ("p".to_string(), self.p),
-            ("rho".to_string(), self.rho),
         ]
-    }
-}
-
-pub fn air() -> Properties {
-    let rho = 1.3;
-    let u = Vector3::new(1., 0., 0.);
-    let p = 100_000.;
-    let gamma = 1.4;
-    Properties {
-        rho,
-        rho_u: rho * u,
-        E: p / (gamma - 1.) + 0.5 * rho * u.dot(&u),
-        u,
-        e: p / (gamma - 1.) / rho + 0.5 * u.dot(&u),
-        p,
-        gamma,
     }
 }
 
 fn properties_generator(position: &Point3<f64>) -> Properties {
     let w0 = 0.1;
-    let sigma = 0.05f64.powi(2);
-    let rho = 1. + (position.y - 0.5).abs().clamp(0., 0.25);
+    let sigma = 0.05 / f64::sqrt(2.);
+    let midsection = |x: f64| if (x - 0.5).abs() < 0.25 { 1. } else { 0. };
+    let rho = 1. + midsection(position.y);
     let u = Vector3::new(
-        -0.5 + (position.y - 0.5).abs().clamp(0., 0.25),
+        -0.5 + midsection(position.y),
+        // w0*np.sin(4*np.pi*X) * ( np.exp(-(Y-0.25)**2/(2 * sigma**2)) + np.exp(-(Y-0.75)**2/(2*sigma**2)) )
         w0 * f64::sin(4. * std::f64::consts::PI * position.x)
-            * (f64::exp(-(position.y - 0.25).powi(2) / (2. * sigma))
-                + f64::exp(-(position.y - 0.75).powi(2) / (2. * sigma))),
+            * (f64::exp(-(position.y - 0.25).powf(2.) / (2. * sigma.powf(2.)))
+                + f64::exp(-(position.y - 0.75).powf(2.) / (2. * sigma.powf(2.)))),
         0.,
     );
     let p = 2.5;
-    let gamma = 1.4;
+    let gamma = 5. / 3.;
     Properties {
         rho,
-        rho_u: rho * u,
-        E: p / (gamma - 1.) + 0.5 * rho * u.dot(&u),
         u,
-        e: p / (gamma - 1.) / rho + 0.5 * u.dot(&u),
         p,
         gamma,
+        ..Default::default()
     }
 }
 
@@ -122,18 +118,22 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let bc1 = BoundaryCondition("periodic".to_string(), dvector![1., 0., 0.]);
     let bc2 = BoundaryCondition("wall".to_string(), dvector![0.]);
     let bc3 = BoundaryCondition("periodic".to_string(), dvector![-1., 0., 0.]);
-    let boundary_conditions: [Option<BoundaryCondition>; 6] = [
-        Some(bc1),
-        Some(bc2.clone()),
-        None,
-        Some(bc3),
-        Some(bc2.clone()),
-        None,
-    ];
-    let n_grid = (128, 128, 1);
+    let bc4 = BoundaryCondition("periodic".to_string(), dvector![0., 1., 0.]);
+    let bc5 = BoundaryCondition("periodic".to_string(), dvector![0., -1., 0.]);
+    let boundary_conditions: [Option<BoundaryCondition>; 6] =
+        [Some(bc1), Some(bc4), None, Some(bc3), Some(bc5), None];
+    // let boundary_conditions: [Option<BoundaryCondition>; 6] = [
+    //     Some(bc1),
+    //     Some(bc2.clone()),
+    //     None,
+    //     Some(bc3),
+    //     Some(bc2.clone()),
+    //     None,
+    // ];
+    let n_grid = (2 * 128, 2 * 128, 1);
     let mut block: problem::Problem<Properties> = problem::Problem::new();
-    let mass_eq = generate_equation_structure!(get_rho, update_rho, euler_mass, 1);
-    let impulse_eq = generate_equation_structure!(get_impulse, update_impulse, euler_impulse, 3);
+    let mass_eq = generate_equation_structure!(get_mass, update_mass, euler_mass, 1);
+    let impulse_eq = generate_equation_structure!(get_momentum, update_momentum, euler_impulse, 3);
     let energy_eq = generate_equation_structure!(get_energy, update_energy, euler_energy, 1);
     block.add_zone(
         (0., 0., 0.),
@@ -144,7 +144,50 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         properties_generator,
     );
     assert!(block.check_periodic_bc());
+    block.mesh.update_integral();
     block
+}
+
+/////////////////////////
+/// Numerical methods ///
+/////////////////////////
+
+fn rusanov_scalar(
+    flux: fn(&Properties) -> Vector3<f64>,
+    var: fn(&Properties) -> f64,
+    p1: &Properties,
+    p2: &Properties,
+    scaled_normal: &Vector3<f64>,
+) -> f64 {
+    let f1 = flux(p1);
+    let f2 = flux(p2);
+    let area = scaled_normal.norm();
+    let lambda = f64::max(
+        p1.u.dot(scaled_normal).abs() + f64::sqrt(p1.gamma * p1.p / p1.rho) * area,
+        p2.u.dot(scaled_normal).abs() + f64::sqrt(p2.gamma * p2.p / p2.rho) * area,
+    );
+    let u1 = var(p1);
+    let u2 = var(p2);
+    return 0.5 * (f1 + f2).dot(&scaled_normal) - 0.5 * lambda * (u2 - u1);
+}
+
+fn rusanov_vector(
+    flux: fn(&Properties) -> Matrix3<f64>,
+    var: fn(&Properties) -> Vector3<f64>,
+    p1: &Properties,
+    p2: &Properties,
+    scaled_normal: &Vector3<f64>,
+) -> Vector3<f64> {
+    let f1 = flux(p1);
+    let f2 = flux(p2);
+    let area = scaled_normal.norm();
+    let lambda = f64::max(
+        p1.u.dot(scaled_normal).abs() + f64::sqrt(p1.gamma * p1.p / p1.rho) * area,
+        p2.u.dot(scaled_normal).abs() + f64::sqrt(p2.gamma * p2.p / p2.rho) * area,
+    );
+    let u1 = var(p1);
+    let u2 = var(p2);
+    return 0.5 * (f1 + f2) * scaled_normal - 0.5 * lambda * (u2 - u1);
 }
 
 ////////////////////////
@@ -161,12 +204,20 @@ pub fn create_mesh() -> problem::Problem<Properties> {
 // with E = rho * e + 1/2 * rho * u^2
 // and p = (gamma - 1) * rho * e
 
+pub fn get_mass(p: &Properties) -> f64 {
+    p.mass
+}
+
+pub fn update_mass(p: &mut Properties, mass: f64) {
+    p.mass = mass;
+}
+
 pub fn get_rho(p: &Properties) -> f64 {
     p.rho
 }
 
-pub fn update_rho(p: &mut Properties, rho: f64) {
-    p.rho = rho;
+fn euler_mass_flux(p: &Properties) -> Vector3<f64> {
+    return p.rho * p.u;
 }
 
 pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
@@ -179,29 +230,19 @@ pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
                 let n = &problem.mesh.cells[i_n];
                 let f = &problem.mesh.faces[i_f];
-                let rho_avg = (p.properties.rho + n.properties.rho) / 2.;
-                let u_avg: Vector3<f64> = (p.properties.u + n.properties.u) / 2.;
-                let invert_if_not_owner = if f.is_owner(i_p) { 1. } else { -1. };
-                convective_flux -= (rho_avg * u_avg).dot(&f.normal) * f.area * invert_if_not_owner;
+                convective_flux -= rusanov_scalar(
+                    euler_mass_flux,
+                    get_rho,
+                    &p.properties,
+                    &n.properties,
+                    &(f.out_normal(i_p) * f.area),
+                );
             }
-            problem::NeighborReturn::Boundary(name, i_f, _, values) => {
+            problem::NeighborReturn::Boundary(name, i_f, _, _) => {
                 let f = &problem.mesh.faces[i_f];
                 match name {
-                    "inlet" => {
-                        // flux with known properties rho (values[0]) and u (values[1..=3])
-                        let rho_avg = (p.properties.rho + values[0]) / 2.;
-                        let u_avg: Vector3<f64> =
-                            (p.properties.u + Vector3::new(values[1], values[2], values[3])) / 2.;
-                        convective_flux -= (rho_avg * u_avg).dot(&f.normal) * f.area;
-                    }
                     "wall" => {
                         // impermeable wall
-                        convective_flux -= 0.;
-                    }
-                    "fully_developed" => {
-                        // fully developed flow which means the flow is assumed to not change in the normal direction
-                        convective_flux -=
-                            (p.properties.rho * p.properties.u).dot(&f.normal) * f.area;
                     }
                     _ => {
                         panic!("Unknown boundary condition : {}", name);
@@ -216,65 +257,50 @@ pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
     convective_flux
 }
 
-pub fn get_impulse(p: &Properties) -> Vector3<f64> {
-    p.rho_u
+pub fn get_momentum(p: &Properties) -> Vector3<f64> {
+    p.momentum
 }
 
-pub fn update_impulse(p: &mut Properties, rho_u: &Vector3<f64>) {
-    p.rho_u[0] = rho_u[0];
-    p.rho_u[1] = rho_u[1];
-    p.rho_u[2] = rho_u[2];
+pub fn update_momentum(p: &mut Properties, momentum: &Vector3<f64>) {
+    p.momentum[0] = momentum[0];
+    p.momentum[1] = momentum[1];
+    p.momentum[2] = momentum[2];
+}
+
+pub fn get_impulse(p: &Properties) -> Vector3<f64> {
+    p.rho * p.u
+}
+
+fn euler_impulse_flux(p: &Properties) -> Matrix3<f64> {
+    return p.rho * p.u * p.u.transpose() + p.p * Matrix3::identity();
 }
 
 pub fn euler_impulse(problem: &problem::Problem<Properties>, i_p: usize) -> Vector3<f64> {
     // momentum conservation equation
-    // d(rho*u)/dt + div(rho * u x u + p * I) = 0
+    // d(rho*u)/dt + div(1/rho * rho*u x rho*u + p * I) = 0
     let p = &problem.mesh.cells[i_p];
-    let mut convective_flux = Vector3::from_vec(vec![0., 0., 0.]);
+    let mut convective_flux = Vector3::new(0., 0., 0.);
 
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
                 let n = &problem.mesh.cells[i_n];
                 let f = &problem.mesh.faces[i_f];
-                let rho_avg = (p.properties.rho + n.properties.rho) / 2.;
-                let u_avg: Vector3<f64> = (p.properties.u + n.properties.u) / 2.;
-                let p_avg = (p.properties.p + n.properties.p) / 2.;
-                let invert_if_not_owner = if f.is_owner(i_p) { 1. } else { -1. };
-                convective_flux -=
-                    (rho_avg * u_avg * u_avg.transpose() + p_avg * Matrix3::identity()).transpose()
-                        * f.normal
-                        * f.area
-                        * invert_if_not_owner;
-                // TODO : check if this is correct...
+                convective_flux -= rusanov_vector(
+                    euler_impulse_flux,
+                    get_impulse,
+                    &p.properties,
+                    &n.properties,
+                    &(f.out_normal(i_p) * f.area),
+                );
             }
-            problem::NeighborReturn::Boundary(name, i_f, _, values) => {
+            problem::NeighborReturn::Boundary(name, i_f, _, _) => {
                 let f = &problem.mesh.faces[i_f];
                 match name {
-                    "inlet" => {
-                        // flux with known properties rho (values[0]) and u (values[1..=3])
-                        let rho_avg = (p.properties.rho + values[0]) / 2.;
-                        let u_avg: Vector3<f64> =
-                            (p.properties.u + Vector3::new(values[1], values[2], values[3])) / 2.;
-                        let p_avg = (p.properties.p + values[4]) / 2.;
-                        convective_flux -= (rho_avg * u_avg * u_avg.transpose()
-                            + p_avg * Matrix3::identity())
-                        .transpose()
-                            * f.normal
-                            * f.area;
-                    }
                     "wall" => {
-                        // impermeable wall
-                        convective_flux -= Vector3::zeros();
-                    }
-                    "fully_developed" => {
-                        // fully developed flow which means the flow is assumed to not change in the normal direction
                         convective_flux -=
-                            (p.properties.rho * p.properties.u * p.properties.u.transpose()
-                                + p.properties.p * Matrix3::identity())
-                            .transpose()
-                                * f.normal
-                                * f.area;
+                            (p.properties.p * Matrix3::identity()) * f.out_normal(i_p) * f.area;
+                        // impermeable wall
                     }
                     _ => {
                         panic!("Unknown boundary condition : {}", name);
@@ -289,14 +315,22 @@ pub fn euler_impulse(problem: &problem::Problem<Properties>, i_p: usize) -> Vect
     convective_flux
 }
 
-#[allow(non_snake_case)]
 pub fn get_energy(p: &Properties) -> f64 {
-    p.E
+    p.energy
 }
 
 #[allow(non_snake_case)]
-pub fn update_energy(p: &mut Properties, E: f64) {
-    p.E = E;
+pub fn update_energy(p: &mut Properties, energy: f64) {
+    p.energy = energy;
+}
+
+pub fn get_specific_energy(p: &Properties) -> f64 {
+    p.p / (p.gamma - 1.) + 0.5 * p.rho * p.u.dot(&p.u)
+}
+
+fn euler_energy_flux(p: &Properties) -> Vector3<f64> {
+    let en = get_specific_energy(p);
+    return p.u * (en + p.p);
 }
 
 #[allow(non_snake_case)]
@@ -311,39 +345,20 @@ pub fn euler_energy(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
                 let n = &problem.mesh.cells[i_n];
                 let f = &problem.mesh.faces[i_f];
-                let E_avg = (p.properties.E + n.properties.E) / 2.;
-                let p_avg = (p.properties.p + n.properties.p) / 2.;
-                let u_avg: Vector3<f64> = (p.properties.u + n.properties.u) / 2.;
-                let invert_if_not_owner = if f.is_owner(i_p) { 1. } else { -1. };
-                convective_flux -=
-                    (u_avg * (E_avg + p_avg)).dot(&f.normal) * f.area * invert_if_not_owner;
+                convective_flux -= rusanov_scalar(
+                    euler_energy_flux,
+                    get_specific_energy,
+                    &p.properties,
+                    &n.properties,
+                    &(f.out_normal(i_p) * f.area),
+                );
             }
-            problem::NeighborReturn::Boundary(name, i_f, _, values) => {
+            problem::NeighborReturn::Boundary(name, i_f, _, _) => {
                 let f = &problem.mesh.faces[i_f];
 
                 match name {
-                    "inlet" => {
-                        let boundary_rho = values[0];
-                        let boundary_u = Vector3::new(values[1], values[2], values[3]);
-                        let boundary_p = values[4];
-                        // WARNING : gamma should actually also be passed as part of the boundary condition data
-                        let boundary_E = boundary_p / (p.properties.gamma - 1.)
-                            + 1. / 2. * boundary_rho * boundary_u.dot(&boundary_u);
-                        // flux with known properties rho (values[0]) and u (values[1..=3])
-                        let E_avg = (p.properties.E + boundary_E) / 2.;
-                        let p_avg = (p.properties.p + boundary_p) / 2.;
-                        let u_avg: Vector3<f64> = (p.properties.u + boundary_u) / 2.;
-                        convective_flux -= (u_avg * (E_avg + p_avg)).dot(&f.normal) * f.area;
-                    }
                     "wall" => {
                         // impermeable wall, we assume it is also adiabatic
-                        convective_flux -= 0.;
-                    }
-                    "fully_developed" => {
-                        // fully developed flow which means the flow is assumed to not change in the normal direction
-                        convective_flux -= (p.properties.u * (p.properties.E + p.properties.p))
-                            .dot(&f.normal)
-                            * f.area;
                     }
                     _ => {
                         panic!("Unknown boundary condition : {}", name);

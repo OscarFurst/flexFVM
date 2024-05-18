@@ -33,7 +33,11 @@ pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
     /// It is meant to update the properties that are derived from the geometry of the cell,
     /// so that densities can be used in the problem initialization while the mass is the actual
     /// variable that is solved for.
-    fn update_integral(&mut self, volume: f64) {}
+    fn update_integral(&mut self, _volume: f64) {}
+    /// compute_derivatives is called after update_primitive, before the new right-hand side is computed.
+    /// It is meant to compute the derivatives of the properties that are needed for extrapolation of face values.
+    /// Typically, derivatives of the primitive variables are computed here.
+    fn compute_derivatives(&mut self, _mesh: &Mesh<Self>) {}
     /// export is called when the solution is exported to a file.
     fn export(&self) -> Vec<(String, f64)>;
 }
