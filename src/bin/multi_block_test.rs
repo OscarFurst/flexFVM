@@ -1,3 +1,4 @@
+use flex_fvm::computational_cell::{PropertySlice, PropertySliceMut, PropertySliceOwned};
 use flex_fvm::{
     computational_cell::HasProperties, equation::*, generate_equation_structure, problem, solver,
 };
@@ -34,14 +35,14 @@ fn main() {
 ////////////////////////
 
 #[allow(non_snake_case)]
-#[derive(Default, Clone, Copy)]
+#[derive(Clone)]
 pub struct Properties {
     // physical properties
-    pub T: f64,   // K
-    pub rho: f64, // kg/m3
-    pub cp: f64,  // J/k/kg
+    pub T: DVector<f64>,   // K
+    pub rho: DVector<f64>, // kg/m3
+    pub cp: DVector<f64>,  // J/k/kg
     // solid
-    pub lambda: f64, // W/m/k
+    pub lambda: DVector<f64>, // W/m/k
 }
 
 impl fmt::Debug for Properties {
@@ -51,26 +52,56 @@ impl fmt::Debug for Properties {
 }
 
 impl HasProperties for Properties {
-    fn update_primitive(&mut self, volume: f64) {
-        // here we can update derived variables if needed
+    fn export(&self) -> Vec<(String, &DVector<f64>)> {
+        vec![("T".to_string(), &self.T)]
     }
 
-    fn export(&self) -> Vec<(String, f64)> {
-        vec![("T".to_string(), self.T)]
+    fn slice(&self, index: usize) -> PropertySlice {
+        PropertySlice {
+            T: &self.T[index],
+            rho: &self.rho[index],
+            cp: &self.cp[index],
+            lambda: &self.lambda[index],
+        }
+    }
+
+    fn slice_mut(&mut self, index: usize) -> PropertySliceMut {
+        PropertySliceMut {
+            T: &mut self.T[index],
+            rho: &mut self.rho[index],
+            cp: &mut self.cp[index],
+            lambda: &mut self.lambda[index],
+        }
+    }
+
+    fn push(&mut self, slice: PropertySliceOwned) {
+        self.T = self.T.push(slice.T);
+        self.rho = self.rho.push(slice.rho);
+        self.cp = self.cp.push(slice.cp);
+        self.lambda = self.lambda.push(slice.lambda);
     }
 }
 
+impl Default for Properties {
+    fn default() -> Self {
+        Properties {
+            T: DVector::from(Vec::new()),
+            rho: DVector::from(Vec::new()),
+            cp: DVector::from(Vec::new()),
+            lambda: DVector::from(Vec::new()),
+        }
+    }
+}
 ///////////////////
 /// Copper data ///
 ///////////////////
 
-pub fn copper(_position: &Point3<f64>) -> Properties {
-    Properties {
+pub fn copper(_position: &Point3<f64>) -> PropertySliceOwned {
+    PropertySliceOwned {
         T: 0.,
         rho: 9000.,
         cp: 0.001,
         lambda: 300.,
-        //..Default::default()
     }
 }
 
@@ -104,7 +135,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         (0.5, 1., 0.5),
         n_grid,
         boundary_conditions,
-        vec![heat_diffusion_equations],
+        vec![heat_diffusion_equations.clone()],
         copper,
     );
     // bottom right
@@ -121,7 +152,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         (1., 1., 0.5),
         n_grid,
         boundary_conditions,
-        vec![heat_diffusion_equations],
+        vec![heat_diffusion_equations.clone()],
         copper,
     );
     // top left
@@ -138,7 +169,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         (0.5, 1., 1.),
         n_grid,
         boundary_conditions,
-        vec![heat_diffusion_equations],
+        vec![heat_diffusion_equations.clone()],
         copper,
     );
     // top right
@@ -165,23 +196,29 @@ pub fn create_mesh() -> problem::Problem<Properties> {
 /// Heat diffusion equation ///
 ///////////////////////////////
 #[allow(non_snake_case)]
-pub fn get_T(p: &Properties) -> f64 {
-    p.T
+pub fn get_T(p: PropertySlice) -> f64 {
+    *p.T
 }
 
 #[allow(non_snake_case)]
-pub fn update_T_user(p: &mut Properties, T: f64) {
-    p.T = T;
+pub fn update_T_user(p: PropertySliceMut, T: f64) {
+    *p.T = T;
 }
 
 pub fn heat_diffusion_user(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
     // TODO : deal with boundary conditions
-    let p = &problem.mesh.cells[i_p];
+    let p = &problem
+        .mesh
+        .cells
+        .get_cell(i_p, problem.cell_properties.slice(i_p));
     let mut flux = 0.;
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             problem::NeighborReturn::Internal(i_n, i_f, distance) => {
-                let n = &problem.mesh.cells[i_n];
+                let n = &problem
+                    .mesh
+                    .cells
+                    .get_cell(i_n, problem.cell_properties.slice(i_n));
                 let f = &problem.mesh.faces[i_f];
                 flux -= p.properties.lambda * (p.properties.T - n.properties.T) / distance * f.area;
             }

@@ -1,4 +1,4 @@
-use crate::computational_cell::HasProperties;
+use crate::computational_cell::{HasProperties, PropertySlice, PropertySliceMut};
 use nalgebra::DVector;
 
 /// A BoundaryCondition is a combination of :
@@ -16,8 +16,8 @@ pub struct BoundaryCondition(pub String, pub DVector<f64>);
 // - a list (Vec) of possible boundary conditions
 #[derive(Copy, Clone)]
 pub struct Equation<T: HasProperties> {
-    pub get: fn(&T) -> DVector<f64>,
-    pub lhs: fn(&mut T, &DVector<f64>),
+    pub get: fn(PropertySlice) -> DVector<f64>,
+    pub lhs: fn(PropertySliceMut, &DVector<f64>),
     pub rhs: fn(&crate::problem::Problem<T>, usize) -> DVector<f64>,
     pub dimension: usize,
 }
@@ -47,13 +47,13 @@ macro_rules! generate_get_function {
     // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
     // into a function that operates on a DVector<f64>, which is used by the solver
     ($user_get_function:ident, 1) => {
-        |p: &Properties| -> DVector<f64> { dvector![$user_get_function(p)] }
-            as fn(&Properties) -> DVector<f64>
+        |p: flex_fvm::computational_cell::PropertySlice| -> DVector<f64> { dvector![$user_get_function(p)] }
+            as fn(flex_fvm::computational_cell::PropertySlice) -> DVector<f64>
     };
     ($user_get_function:ident, $SomeType:expr) => {
-        |p: &Properties| -> DVector<f64> {
+        |p: flex_fvm::computational_cell::PropertySlice| -> DVector<f64> {
             nalgebra::DVector::from_vec($user_get_function(p).as_slice().to_vec()) // TODO : this might be slow as heck
-        } as fn(&Properties) -> DVector<f64>
+        } as fn(flex_fvm::computational_cell::PropertySlice) -> DVector<f64>
     };
 }
 
@@ -62,16 +62,16 @@ macro_rules! generate_update_function {
     // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
     // into a function that operates on a DVector<f64>, which is used by the solver
     ($user_update_function:ident, 1) => {
-        |p: &mut Properties, v2: &DVector<f64>| -> () {
+        |p: flex_fvm::computational_cell::PropertySliceMut, v2: &DVector<f64>| -> () {
             let v1: f64 = v2[0];
             $user_update_function(p, v1);
-        } as fn(&mut Properties, &DVector<f64>)
+        } as fn(flex_fvm::computational_cell::PropertySliceMut, &DVector<f64>)
     };
     ($user_update_function:ident, $SomeType:expr) => {
-        |p: &mut Properties, v2: &DVector<f64>| -> () {
+        |p: flex_fvm::computational_cell::PropertySliceMut, v2: &DVector<f64>| -> () {
             let v1: nalgebra::SVector<f64, $SomeType> = nalgebra::SVector::from_vec(v2.as_slice().to_vec()); // TODO : this might be slow as heck
             $user_update_function(p, &v1);
-        } as fn(&mut Properties, &DVector<f64>);
+        } as fn(flex_fvm::computational_cell::PropertySliceMut, &DVector<f64>);
     };
 }
 

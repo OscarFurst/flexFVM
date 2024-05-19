@@ -1,9 +1,13 @@
-use crate::computational_cell::{HasProperties, NeighborType};
+use crate::computational_cell::{HasProperties, NeighborType, PropertySliceOwned};
 use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
 use crate::mesh::Mesh;
 use indicatif::ProgressBar;
-use nalgebra::{DVector, Point3, Vector3};
+use nalgebra::{DVector, Point3, Storage, Vector3};
+use std::error::Error;
+use std::fs::File;
+use std::path::PathBuf;
+use vtkio::model::{Attributes, DataArray, ElementType};
 
 pub enum NeighborReturn<'a> {
     Internal(usize, usize, f64),
@@ -13,7 +17,8 @@ pub enum NeighborReturn<'a> {
 
 #[derive(Clone)]
 pub struct Problem<T: HasProperties> {
-    pub mesh: Mesh<T>,
+    pub mesh: Mesh,
+    pub cell_properties: T,
     pub equation_containers: Vec<EquationContainer<T>>,
 }
 
@@ -21,12 +26,13 @@ impl<T: HasProperties> Problem<T> {
     pub fn new() -> Self {
         Problem {
             mesh: Mesh::new(),
+            cell_properties: T::default(),
             equation_containers: Vec::new(),
         }
     }
 
     pub fn n_cells(&self) -> usize {
-        self.mesh.cells.len()
+        self.mesh.cells.volume.len()
     }
 
     pub fn n_eq(&self) -> usize {
@@ -48,7 +54,7 @@ impl<T: HasProperties> Problem<T> {
         (nx, ny, nz): (usize, usize, usize),
         bc: [Option<BoundaryCondition>; 6],
         equations: Vec<equation::Equation<T>>,
-        internal_props: fn(&Point3<f64>) -> T,
+        internal_props: fn(&Point3<f64>) -> PropertySliceOwned,
     ) -> &mut Problem<T> {
         let zone_id = self.equation_containers.len();
         // TODO: I could not think of an elegant way to pass boundary conditions
@@ -106,12 +112,8 @@ impl<T: HasProperties> Problem<T> {
                     let cell_ending =
                         origin + ex * (i + 1) as f64 + ey * (j + 1) as f64 + ez * (k + 1) as f64;
                     let cell_center = cell_origin + (cell_ending - cell_origin) / 2.0;
-                    let cell_index = self.mesh.add_hex_cell(
-                        cell_origin,
-                        cell_ending,
-                        internal_props(&cell_center),
-                        zone_id,
-                    );
+                    let cell_index = self.mesh.add_hex_cell(cell_origin, cell_ending, zone_id);
+                    self.cell_properties.push(internal_props(&cell_center));
                     zone_cell_indices.push(cell_index);
                     // check if at boundary. if so, create boundary condition
                     if i == 0 {
@@ -178,11 +180,11 @@ impl<T: HasProperties> Problem<T> {
                                         // in this case we have to set up two faces instead of jsut one !
                                         face.neighbor = NeighborType::Internal(
                                             cell_index,
-                                            (face.center - self.mesh.cells[cell_index].r).norm(),
+                                            (face.center - self.mesh.cells.r[cell_index]).norm(),
                                         );
                                         neighb = NeighborType::Internal(
                                             face.owner.0,
-                                            (self.mesh.cells[face.owner.0].r - face.center).norm(),
+                                            (self.mesh.cells.r[face.owner.0] - face.center).norm(),
                                         );
                                         break;
                                     }
@@ -236,8 +238,8 @@ impl<T: HasProperties> Problem<T> {
                     layer
                         .cell_indices
                         .iter()
-                        .map(|&i| &self.mesh.cells[i])
-                        .map(|cell| (eq.get)(&cell.properties))
+                        .map(|&i| self.cell_properties.slice(i))
+                        .map(|cell| (eq.get)(cell))
                         .sum(),
                 );
             }
@@ -252,7 +254,7 @@ impl<T: HasProperties> Problem<T> {
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    x.push((eq.get)(&self.mesh.cells[*i_cell].properties));
+                    x.push((eq.get)(self.cell_properties.slice(*i_cell)));
                 }
             }
         }
@@ -277,12 +279,19 @@ impl<T: HasProperties> Problem<T> {
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    (eq.lhs)(&mut self.mesh.cells[*i_cell].properties, &x[i]);
+                    (eq.lhs)(self.cell_properties.slice_mut(*i_cell), &x[i]);
                     i += 1;
                 }
-                self.mesh.cells[*i_cell].update_primitive()
             }
         }
+        self.cell_properties
+            .update_primitive(&self.mesh.cells.volume);
+    }
+
+    pub fn update_integral(&mut self) {
+        // takes the solution and updates every cell with it
+        self.cell_properties
+            .update_integral(&self.mesh.cells.volume);
     }
 
     /// Returns all neighbors of the specified cell
@@ -291,8 +300,7 @@ impl<T: HasProperties> Problem<T> {
     /// - a boundary condition (name, some values)
     /// - Nil (no neighbor, should only be encountered in 2D or 1D meshes)
     pub fn neighbors<'a>(&self, i_cell: usize) -> Vec<NeighborReturn> {
-        self.mesh.cells[i_cell]
-            .faces
+        self.mesh.cells.faces[i_cell]
             .iter()
             .map(|i_face| match self.mesh.faces[*i_face].neighbor {
                 NeighborType::Internal(i, n_distance) if i == i_cell => {
@@ -306,7 +314,7 @@ impl<T: HasProperties> Problem<T> {
                 ),
                 NeighborType::Boundary(id) => {
                     let BoundaryCondition(name, values) = &self.equation_containers
-                        [self.mesh.cells[i_cell].zone]
+                        [self.mesh.cells.zone[i_cell]]
                         .boundary_conditions[id];
                     NeighborReturn::Boundary(
                         name,
@@ -319,10 +327,240 @@ impl<T: HasProperties> Problem<T> {
             })
             .collect()
     }
+
+    /// Exports the mesh to the VTK format.
+    /// vtkio crate support for polyhedra is not yet implemented.
+    /// This function will only work for hexahedra.
+    pub fn export_to_vtk(&self, filename: &str) {
+        // collect the lists of points that define the cells
+        // TODO : implement IntoIter for CellData and Properties to simplify this
+        let mut cell_indices: Vec<Vec<u64>> = Vec::with_capacity(self.n_cells());
+        for i in 0..self.n_cells() {
+            cell_indices.push(
+                self.mesh
+                    .cells
+                    .get_cell(i, self.cell_properties.slice(i))
+                    .hexahedron_vertices(&self.mesh)
+                    .iter()
+                    .map(|&x| x as u64)
+                    .collect(),
+            );
+        }
+        let offsets: Vec<u64> = cell_indices
+            .iter()
+            .scan(0, |acc, x| {
+                *acc += x.len() as u64;
+                Some(*acc)
+            })
+            .collect::<Vec<u64>>();
+        // collect the data of the cells
+        let mut data_labels = Vec::new();
+        let mut data_values = Vec::new();
+        for (label, values) in self.cell_properties.export() {
+            data_labels.push(label);
+            data_values.push(values);
+        }
+
+        // use the vtkio crate to write a VTK file
+        let vtk_file = vtkio::Vtk {
+            version: vtkio::model::Version { major: 4, minor: 2 },
+            title: "Mesh".to_string(),
+            byte_order: vtkio::model::ByteOrder::BigEndian,
+            file_path: None,
+            data: vtkio::model::DataSet::inline(vtkio::model::UnstructuredGridPiece {
+                points: vtkio::IOBuffer::F64(
+                    // vec that contains all point coordinates
+                    self.mesh
+                        .vertices
+                        .iter()
+                        .flat_map(|p| vec![p.x, p.y, p.z])
+                        .collect::<Vec<f64>>(),
+                ),
+                cells: vtkio::model::Cells {
+                    cell_verts: vtkio::model::VertexNumbers::XML {
+                        connectivity: cell_indices.concat(),
+                        offsets,
+                    },
+                    types: cell_indices
+                        .iter()
+                        .map(|index_list| match index_list.len() {
+                            8 => vtkio::model::CellType::Hexahedron,
+                            _ => vtkio::model::CellType::Polyhedron,
+                        })
+                        .collect(),
+                },
+                data: Attributes {
+                    cell: {
+                        let mut attributes_items = Vec::new();
+                        for (label, values) in data_labels.iter().zip(data_values.iter()) {
+                            attributes_items.push(vtkio::model::Attribute::DataArray(DataArray {
+                                name: label.clone(),
+                                elem: ElementType::Scalars {
+                                    num_comp: 1,
+                                    lookup_table: None,
+                                },
+                                data: vtkio::IOBuffer::F64(values.data.clone().into()),
+                            }));
+                        }
+                        attributes_items
+                    },
+                    ..Default::default()
+                },
+            }),
+        };
+
+        // export
+        let file_path = PathBuf::from(filename);
+        vtk_file
+            .export_ascii(file_path)
+            .expect("Failed to export mesh to VTK");
+    }
+
+    pub fn export_csv(&self, filename: &str) -> Result<(), Box<dyn Error>> {
+        // create the file
+        File::create(filename)?;
+        let mut wtr = csv::Writer::from_path(filename)?;
+
+        // When writing records without Serde, the header record is written just
+        // like any other record.
+        let mut header = vec!["x", "y", "z"];
+        let headerdata = self.cell_properties.export();
+        for (label, _) in headerdata.iter() {
+            header.push(label);
+        }
+        wtr.write_record(&header)?;
+        for i in 0..self.n_cells() {
+            let mut record = vec![
+                self.mesh.cells.r[i].x.to_string(),
+                self.mesh.cells.r[i].y.to_string(),
+                self.mesh.cells.r[i].z.to_string(),
+            ];
+            for (_, value) in headerdata.iter() {
+                record.push(value[i].to_string());
+            }
+            wtr.write_record(&record)?;
+        }
+        wtr.flush()?;
+        Ok(())
+    }
 }
 
 impl<T: HasProperties> Default for Problem<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::computational_cell::{
+        HasProperties, PropertySlice, PropertySliceMut, PropertySliceOwned,
+    };
+    use nalgebra::DVector;
+    use std::fmt;
+
+    #[allow(non_snake_case)]
+    #[derive(Clone)]
+    pub struct Properties {
+        // physical properties
+        pub T: DVector<f64>,   // K
+        pub rho: DVector<f64>, // kg/m3
+        pub cp: DVector<f64>,  // J/k/kg
+        // solid
+        pub lambda: DVector<f64>, // W/m/k
+    }
+
+    impl fmt::Debug for Properties {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self.T)
+        }
+    }
+
+    impl HasProperties for Properties {
+        fn export(&self) -> Vec<(String, &DVector<f64>)> {
+            vec![("T".to_string(), &self.T)]
+        }
+
+        fn slice(&self, index: usize) -> PropertySlice {
+            PropertySlice {
+                T: &self.T[index],
+                rho: &self.rho[index],
+                cp: &self.cp[index],
+                lambda: &self.lambda[index],
+            }
+        }
+
+        fn slice_mut(&mut self, index: usize) -> PropertySliceMut {
+            PropertySliceMut {
+                T: &mut self.T[index],
+                rho: &mut self.rho[index],
+                cp: &mut self.cp[index],
+                lambda: &mut self.lambda[index],
+            }
+        }
+
+        fn push(&mut self, slice: PropertySliceOwned) {
+            self.T.push(slice.T);
+            self.rho.push(slice.rho);
+            self.cp.push(slice.cp);
+            self.lambda.push(slice.lambda);
+        }
+    }
+
+    impl Default for Properties {
+        fn default() -> Self {
+            Properties {
+                T: DVector::from(Vec::new()),
+                rho: DVector::from(Vec::new()),
+                cp: DVector::from(Vec::new()),
+                lambda: DVector::from(Vec::new()),
+            }
+        }
+    }
+
+    #[test]
+    fn export_single_cell_mesh() {
+        let mut problem: crate::problem::Problem<Properties> = crate::problem::Problem::new();
+        problem.mesh.add_hex_cell(
+            nalgebra::Point3::new(0., 0., 0.),
+            nalgebra::Point3::new(1., 1., 1.),
+            0,
+        );
+        problem.cell_properties.push(PropertySliceOwned {
+            T: 300.,
+            rho: 1.,
+            cp: 1000.,
+            lambda: 1.,
+        });
+
+        problem.export_to_vtk("single_cell_mesh.vtk");
+    }
+
+    #[test]
+    fn export_double_cell_mesh() {
+        let mut problem: crate::problem::Problem<Properties> = crate::problem::Problem::new();
+        problem.mesh.add_hex_cell(
+            nalgebra::Point3::new(0., 0., 0.),
+            nalgebra::Point3::new(1., 1., 1.),
+            0,
+        );
+        problem.mesh.add_hex_cell(
+            nalgebra::Point3::new(1., 0., 0.),
+            nalgebra::Point3::new(2., 1., 1.),
+            0,
+        );
+        problem.cell_properties.push(PropertySliceOwned {
+            T: 300.,
+            rho: 1.,
+            cp: 1000.,
+            lambda: 1.,
+        });
+        problem.cell_properties.push(PropertySliceOwned {
+            T: 400.,
+            rho: 1.,
+            cp: 1000.,
+            lambda: 1.,
+        });
+        problem.export_to_vtk("double_cell_mesh.vtk");
     }
 }

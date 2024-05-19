@@ -32,9 +32,7 @@ pub fn solve<T: HasProperties>(
             .expect("Not able to create output directory");
         // export initial state
         if output_args.print_vtk {
-            problem
-                .mesh
-                .export_to_vtk(format!("{}/step0.vtk", &output_args.filename).as_str());
+            problem.export_to_vtk(format!("{}/step0.vtk", &output_args.filename).as_str());
         }
     }
     // make a nice progress bar
@@ -68,14 +66,11 @@ pub fn solve<T: HasProperties>(
         // output
         if output_args.frequency > 0. && t > last_plotted_time + output_args.frequency {
             if output_args.print_vtk {
-                problem
-                    .mesh
-                    .export_to_vtk(format!("{}/step{}.vtk", &output_args.filename, it).as_str());
+                problem.export_to_vtk(format!("{}/step{}.vtk", &output_args.filename, it).as_str());
             }
             if output_args.print_csv {
                 let decimals = -f64::log10(h0).ceil() as usize;
                 problem
-                    .mesh
                     .export_csv(
                         format!("{}/time{:.decimals$}.csv", &output_args.filename, t).as_str(),
                     )
@@ -93,9 +88,7 @@ pub fn solve<T: HasProperties>(
     );
     if output_args.frequency == 0. {
         println!("Exporting results ...");
-        problem
-            .mesh
-            .export_to_vtk(format!("{}.vtk", &output_args.filename).as_str());
+        problem.export_to_vtk(format!("{}.vtk", &output_args.filename).as_str());
     }
     problem
 }

@@ -1,7 +1,8 @@
 // for now all cells are rectangular parallelepipeds
 use crate::mesh::Mesh;
 use crate::{geometry_utils::*, problem};
-use nalgebra::{Point3, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix3, Point3, VecStorage, Vector3};
+use nalgebra::{Dyn, MatrixXx3, U3};
 use std::fmt;
 
 ///////////////////////////
@@ -15,68 +16,129 @@ use std::fmt;
 /// the cell: the neighboring cell's face has a normal vector pointing
 /// in the opposite direction, for example.
 #[derive(Clone)]
-pub struct ComputationalCell<T: HasProperties> {
-    // faces of the volume (defines it)
-    pub faces: Vec<usize>,
-    // geometric properties
-    pub r: Point3<f64>, // m
-    pub volume: f64,    // m3
-    pub properties: T,
-    pub zone: usize,
+pub struct CellData {
+    pub faces: Vec<Vec<usize>>,
+    pub r: Vec<Point3<f64>>,
+    pub volume: DVector<f64>,
+    pub zone: Vec<usize>,
+}
+impl Default for CellData {
+    fn default() -> Self {
+        CellData {
+            faces: Vec::new(),
+            r: Vec::new(),
+            volume: DVector::from_vec(Vec::new()),
+            zone: Vec::new(),
+        }
+    }
+}
+impl CellData {
+    pub fn push(&mut self, faces: Vec<usize>, r: Point3<f64>, volume: f64, zone: usize) {
+        self.faces.push(faces);
+        self.r.push(r);
+        self.volume = self.volume.push(volume);
+        self.zone.push(zone);
+    }
+
+    pub fn get_cell<'a>(
+        &'a self,
+        i_cell: usize,
+        properties: PropertySlice<'a>,
+    ) -> ComputationalCell<'a> {
+        ComputationalCell {
+            faces: &self.faces[i_cell],
+            r: &self.r[i_cell],
+            volume: &self.volume[i_cell],
+            properties,
+            zone: &self.zone[i_cell],
+        }
+    }
+
+    pub fn get_cell_mut<'a>(
+        &'a mut self,
+        i_cell: usize,
+        properties: PropertySliceMut<'a>,
+    ) -> ComputationalCellMut<'a> {
+        ComputationalCellMut {
+            faces: &self.faces[i_cell],
+            r: &mut self.r[i_cell],
+            volume: &mut self.volume[i_cell],
+            properties,
+            zone: &mut self.zone[i_cell],
+        }
+    }
 }
 
-pub trait HasProperties: Default + Clone + Copy + fmt::Debug {
+pub struct ComputationalCell<'a> {
+    // faces of the volume (defines it)
+    pub faces: &'a [usize],
+    // geometric properties
+    pub r: &'a Point3<f64>, // m
+    pub volume: &'a f64,    // m3
+    pub properties: PropertySlice<'a>,
+    pub zone: &'a usize,
+}
+
+pub struct ComputationalCellMut<'a> {
+    // faces of the volume (defines it)
+    pub faces: &'a [usize],
+    // geometric properties
+    pub r: &'a mut Point3<f64>, // m
+    pub volume: &'a mut f64,    // m3
+    pub properties: PropertySliceMut<'a>,
+    pub zone: &'a mut usize,
+}
+
+// TODO: this has to be produced by the user eventually
+// might be worth testing out copying the properties instead of using references
+pub struct PropertySlice<'a> {
+    pub T: &'a f64,
+    pub rho: &'a f64,
+    pub cp: &'a f64,
+    pub lambda: &'a f64,
+}
+
+pub struct PropertySliceMut<'a> {
+    pub T: &'a mut f64,
+    pub rho: &'a mut f64,
+    pub cp: &'a mut f64,
+    pub lambda: &'a mut f64,
+}
+
+pub struct PropertySliceOwned {
+    pub T: f64,
+    pub rho: f64,
+    pub cp: f64,
+    pub lambda: f64,
+}
+
+pub trait HasProperties: Default + Clone + fmt::Debug {
     /// update_primitive is called after the new solution variables are computed.
     /// It is meant to update the properties that are directly derived from the solution variables
-    fn update_primitive(&mut self, volume: f64);
+    fn update_primitive(&mut self, _volume: &DVector<f64>) {}
     /// update_integral is called after the mesh is generated
     /// It is meant to update the properties that are derived from the geometry of the cell,
     /// so that densities can be used in the problem initialization while the mass is the actual
     /// variable that is solved for.
-    fn update_integral(&mut self, _volume: f64) {}
+    fn update_integral(&mut self, _volume: &DVector<f64>) {}
     /// compute_derivatives is called after update_primitive, before the new right-hand side is computed.
     /// It is meant to compute the derivatives of the properties that are needed for extrapolation of face values.
     /// Typically, derivatives of the primitive variables are computed here.
-    fn compute_derivatives(&mut self, _mesh: &Mesh<Self>) {}
+    fn compute_derivatives(&mut self, _mesh: &Mesh) {}
     /// export is called when the solution is exported to a file.
-    fn export(&self) -> Vec<(String, f64)>;
+    fn export(&self) -> Vec<(String, &DVector<f64>)>;
+    /// slice returns a reference to the properties of the cell at the given index.
+    fn slice(&self, index: usize) -> PropertySlice;
+    /// slice_mut returns a mutable reference to the properties of the cell at the given index.
+    fn slice_mut(&mut self, index: usize) -> PropertySliceMut;
+    /// push adds the properties of the cell at the given index to the properties.
+    fn push(&mut self, slice: PropertySliceOwned);
 }
 
-impl<T: HasProperties> ComputationalCell<T> {
-    pub fn update_integral(&mut self) {
-        self.properties.update_integral(self.volume);
-    }
-
-    pub fn update_primitive(&mut self) {
-        self.properties.update_primitive(self.volume);
-    }
-    /// Creates a new computational cell from a list of faces.
-    /// The cell is not stored in the mesh, only its properties are initialized.
-    pub fn new(mesh: &Mesh<T>, faces: Vec<usize>, properties: T, zone: usize) -> Self {
-        let mut vertex_indices: Vec<usize> = faces
-            .iter()
-            .flat_map(|i_face| mesh.faces[*i_face].vertices.clone())
-            .collect();
-        vertex_indices.sort();
-        vertex_indices.dedup();
-        let vertex_coordinates: Vec<Point3<f64>> = vertex_indices
-            .iter()
-            .map(|i_vertex| mesh.vertices[*i_vertex])
-            .collect();
-        let r = polyhedron_center(&vertex_coordinates);
-        let volume = polyhedron_volume(&mesh.faces_to_points(&faces));
-        ComputationalCell {
-            faces,
-            r,
-            volume,
-            properties,
-            zone,
-        }
-    }
-
+impl<'a> ComputationalCell<'a> {
     /// Returns a list of vertex indices which is correctly sorted for VTK.
     /// Only works for hexahedrons.
-    pub fn hexahedron_vertices(&self, mesh: &Mesh<T>) -> Vec<usize> {
+    pub fn hexahedron_vertices(&self, mesh: &Mesh) -> Vec<usize> {
         // check that it is a hexahedron
         if self.faces.len() != 6
             || self
@@ -123,7 +185,7 @@ impl<T: HasProperties> ComputationalCell<T> {
     }
 
     /// Returns true if the two vertices share two faces of the computational cell.
-    fn are_connected(&self, mesh: &Mesh<T>, i_vertex1: usize, i_vertex2: usize) -> bool {
+    fn are_connected(&self, mesh: &Mesh, i_vertex1: usize, i_vertex2: usize) -> bool {
         let faces1: Vec<usize> = self
             .faces
             .iter()
@@ -152,9 +214,9 @@ impl<T: HasProperties> ComputationalCell<T> {
     }
 }
 
-impl<T: HasProperties> fmt::Debug for ComputationalCell<T> {
+impl<'a> fmt::Debug for ComputationalCell<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.properties.fmt(f)
+        self.r.fmt(f)
     }
 }
 
@@ -188,7 +250,7 @@ pub struct Face {
 impl Face {
     /// Creates a new face and initialize its basic geometrical properties.
     /// The properties relating to the neighbour need to be initialized later.
-    pub fn new<T: HasProperties>(mesh: &Mesh<T>, vertices_indices: &[usize]) -> Self {
+    pub fn new(mesh: &Mesh, vertices_indices: &[usize]) -> Self {
         let vertices_coordinates: &[Point3<f64>] = &vertices_indices
             .iter()
             .map(|i_vertex| mesh.vertices[*i_vertex])
@@ -221,6 +283,6 @@ impl Face {
     }
 
     pub fn get_zone<T: HasProperties>(&self, problem: &problem::Problem<T>) -> usize {
-        problem.mesh.cells[self.owner.0].zone
+        problem.mesh.cells.zone[self.owner.0]
     }
 }
