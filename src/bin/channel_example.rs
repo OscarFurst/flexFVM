@@ -1,11 +1,10 @@
 use flex_fvm::computational_cell::HasProperties;
 use flex_fvm::problem;
 use flex_fvm::{
-    computational_cell,
     equation::{BoundaryCondition, Equation},
-    generate_equation_structure, solver,
+    solver,
 };
-use nalgebra::{dvector, DVector, Matrix3, Point3, Vector3};
+use nalgebra::{dvector, DVector, Matrix3, Matrix3xX, Point3, RowDVector, Vector3};
 use std::fmt;
 
 // This example implements the equations found at https://levelup.gitconnected.com/create-your-own-finite-volume-fluid-simulation-with-python-8f9eab0b8305
@@ -40,18 +39,18 @@ fn main() {
 ///////////////////////
 
 #[allow(non_snake_case)]
-#[derive(Default, Clone, Copy)]
+#[derive(Clone)]
 pub struct Properties {
     // conserved properties
-    pub mass: f64,              // kg
-    pub momentum: Vector3<f64>, // kg/m/s
-    pub energy: f64,            // J
+    pub mass: RowDVector<f64>,    // kg
+    pub momentum: Matrix3xX<f64>, // kg/m/s
+    pub energy: RowDVector<f64>,  // J
     // primitive properties
-    pub rho: f64,        // kg/m3
-    pub u: Vector3<f64>, // m/s
-    pub p: f64,          // Pa
+    pub rho: RowDVector<f64>, // kg/m3
+    pub u: Matrix3xX<f64>,    // m/s
+    pub p: RowDVector<f64>,   // Pa
     // material properties
-    pub gamma: f64, // adiabatic index
+    pub gamma: RowDVector<f64>, // adiabatic index
 }
 
 impl fmt::Debug for Properties {
@@ -60,33 +59,78 @@ impl fmt::Debug for Properties {
     }
 }
 
-impl computational_cell::HasProperties for Properties {
-    fn update_primitive(&mut self, volume: f64) {
+impl Default for Properties {
+    fn default() -> Self {
+        Properties {
+            mass: RowDVector::from(Vec::new()),
+            momentum: Matrix3xX::from_vec(Vec::new()),
+            energy: RowDVector::from(Vec::new()),
+            rho: RowDVector::from(Vec::new()),
+            u: Matrix3xX::from_vec(Vec::new()),
+            p: RowDVector::from(Vec::new()),
+            gamma: RowDVector::from(Vec::new()),
+        }
+    }
+}
+
+impl HasProperties for Properties {
+    fn update_primitive(&mut self, volume: &RowDVector<f64>) {
         // conserved properties : mass, momentum, energy
-        self.rho = self.mass / volume;
-        self.u = self.momentum / self.rho / volume;
-        self.p = (self.energy / volume - 0.5 * self.rho * self.u.dot(&self.u)) * (self.gamma - 1.);
+        self.rho = self.mass.component_div(volume);
+        for i in 0..3 {
+            self.u.set_row(
+                i,
+                &self
+                    .momentum
+                    .row(i)
+                    .component_div(&self.rho)
+                    .component_div(volume),
+            );
+        }
+        let list_of_velocity_magnitude: RowDVector<f64> = self.u.component_mul(&self.u).row_sum();
+        self.p = (self.energy.component_div(volume)
+            - 0.5 * self.rho.component_mul(&list_of_velocity_magnitude))
+        .component_mul(&self.gamma.add_scalar(-1.));
     }
 
-    fn update_integral(&mut self, volume: f64) {
+    fn update_integral(&mut self, volume: &RowDVector<f64>) {
         // conserved properties : mass, momentum, energy
-        self.mass = self.rho * volume;
-        self.momentum = self.rho * self.u * volume;
-        self.energy = (self.p / (self.gamma - 1.) + 0.5 * self.rho * self.u.dot(&self.u)) * volume;
+        self.mass = self.rho.component_mul(volume);
+        for i in 0..3 {
+            self.momentum
+                .set_row(i, &self.mass.component_mul(&self.u.row(i)));
+        }
+        let list_of_velocity_magnitude: RowDVector<f64> = self.u.component_mul(&self.u).row_sum();
+        self.energy = (self.p.component_div(&self.gamma.add_scalar(-1.))
+            + 0.5 * self.rho.component_mul(&list_of_velocity_magnitude))
+        .component_mul(&volume);
     }
 
-    fn export(&self) -> Vec<(String, f64)> {
+    fn export(&self) -> Vec<(String, Vec<f64>)> {
         vec![
-            ("rho".to_string(), self.rho),
-            ("ux".to_string(), self.u[0]),
-            ("uy".to_string(), self.u[1]),
-            ("uz".to_string(), self.u[2]),
-            ("p".to_string(), self.p),
+            ("rho".to_string(), self.rho.data.as_slice().to_vec()),
+            (
+                "ux".to_string(),
+                self.u.row(0).clone_owned().data.as_slice().to_vec(),
+            ),
+            (
+                "uy".to_string(),
+                self.u.row(1).clone_owned().data.as_slice().to_vec(),
+            ),
+            (
+                "uz".to_string(),
+                self.u.row(2).clone_owned().data.as_slice().to_vec(),
+            ),
+            ("p".to_string(), self.p.data.as_slice().to_vec()),
         ]
     }
 }
 
-fn properties_generator(position: &Point3<f64>) -> Properties {
+pub fn push_to_matrix(matrix: &Matrix3xX<f64>, value: Vector3<f64>) -> Matrix3xX<f64> {
+    Matrix3xX::from_vec(vec![matrix.data.as_slice(), value.data.as_slice()].concat())
+}
+
+fn properties_generator(properties: &mut Properties, position: &Point3<f64>) {
     let w0 = 0.1;
     let sigma = 0.05 / f64::sqrt(2.);
     let midsection = |x: f64| if (x - 0.5).abs() < 0.25 { 1. } else { 0. };
@@ -101,13 +145,14 @@ fn properties_generator(position: &Point3<f64>) -> Properties {
     );
     let p = 2.5;
     let gamma = 5. / 3.;
-    Properties {
-        rho,
-        u,
-        p,
-        gamma,
-        ..Default::default()
-    }
+    properties.rho = properties.rho.transpose().push(rho).transpose();
+    properties.u = push_to_matrix(&properties.u, u);
+    properties.p = properties.p.transpose().push(p).transpose();
+    properties.gamma = properties.gamma.transpose().push(gamma).transpose();
+    // will be updated by update_primitive:
+    properties.mass = properties.mass.transpose().push(0.).transpose();
+    properties.momentum = push_to_matrix(&properties.momentum, Vector3::new(0., 0., 0.));
+    properties.energy = properties.energy.transpose().push(0.).transpose();
 }
 
 ///////////////////
@@ -132,9 +177,24 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     // ];
     let n_grid = (128, 128, 1);
     let mut block: problem::Problem<Properties> = problem::Problem::new();
-    let mass_eq = generate_equation_structure!(get_mass, update_mass, euler_mass, 1);
-    let impulse_eq = generate_equation_structure!(get_momentum, update_momentum, euler_impulse, 3);
-    let energy_eq = generate_equation_structure!(get_energy, update_energy, euler_energy, 1);
+    let mass_eq = Equation {
+        get: Properties::get_mass,
+        lhs: Properties::update_mass,
+        rhs: euler_mass,
+        dimension: 1,
+    };
+    let impulse_eq = Equation {
+        get: Properties::get_momentum,
+        lhs: Properties::update_momentum,
+        rhs: euler_impulse,
+        dimension: 3,
+    };
+    let energy_eq = Equation {
+        get: Properties::get_energy,
+        lhs: Properties::update_energy,
+        rhs: euler_energy,
+        dimension: 1,
+    };
     block.add_zone(
         (0., 0., 0.),
         (1., 1., 1.),
@@ -144,7 +204,9 @@ pub fn create_mesh() -> problem::Problem<Properties> {
         properties_generator,
     );
     assert!(block.check_periodic_bc());
-    block.mesh.update_integral();
+    block
+        .cell_properties
+        .update_integral(&block.mesh.cells.volume);
     block
 }
 
@@ -153,40 +215,46 @@ pub fn create_mesh() -> problem::Problem<Properties> {
 /////////////////////////
 
 fn rusanov_scalar(
-    flux: fn(&Properties) -> Vector3<f64>,
-    var: fn(&Properties) -> f64,
-    p1: &Properties,
-    p2: &Properties,
+    properties: &Properties,
+    flux: fn(&Properties, usize) -> Vector3<f64>,
+    var: fn(&Properties, usize) -> f64,
+    p1: usize,
+    p2: usize,
     scaled_normal: &Vector3<f64>,
 ) -> f64 {
-    let f1 = flux(p1);
-    let f2 = flux(p2);
+    let f1 = flux(properties, p1);
+    let f2 = flux(properties, p2);
     let area = scaled_normal.norm();
     let lambda = f64::max(
-        p1.u.dot(scaled_normal).abs() + f64::sqrt(p1.gamma * p1.p / p1.rho) * area,
-        p2.u.dot(scaled_normal).abs() + f64::sqrt(p2.gamma * p2.p / p2.rho) * area,
+        properties.u.column(p1).dot(scaled_normal).abs()
+            + f64::sqrt(properties.gamma[p1] * properties.p[p1] / properties.rho[p1]) * area,
+        properties.u.column(p2).dot(scaled_normal).abs()
+            + f64::sqrt(properties.gamma[p2] * properties.p[p2] / properties.rho[p2]) * area,
     );
-    let u1 = var(p1);
-    let u2 = var(p2);
+    let u1 = var(properties, p1);
+    let u2 = var(properties, p2);
     return 0.5 * (f1 + f2).dot(&scaled_normal) - 0.5 * lambda * (u2 - u1);
 }
 
 fn rusanov_vector(
-    flux: fn(&Properties) -> Matrix3<f64>,
-    var: fn(&Properties) -> Vector3<f64>,
-    p1: &Properties,
-    p2: &Properties,
+    properties: &Properties,
+    flux: fn(&Properties, usize) -> Matrix3<f64>,
+    var: fn(&Properties, usize) -> Vector3<f64>,
+    p1: usize,
+    p2: usize,
     scaled_normal: &Vector3<f64>,
 ) -> Vector3<f64> {
-    let f1 = flux(p1);
-    let f2 = flux(p2);
+    let f1 = flux(properties, p1);
+    let f2 = flux(properties, p2);
     let area = scaled_normal.norm();
     let lambda = f64::max(
-        p1.u.dot(scaled_normal).abs() + f64::sqrt(p1.gamma * p1.p / p1.rho) * area,
-        p2.u.dot(scaled_normal).abs() + f64::sqrt(p2.gamma * p2.p / p2.rho) * area,
+        properties.u.column(p1).dot(scaled_normal).abs()
+            + f64::sqrt(properties.gamma[p1] * properties.p[p1] / properties.rho[p1]) * area,
+        properties.u.column(p2).dot(scaled_normal).abs()
+            + f64::sqrt(properties.gamma[p2] * properties.p[p2] / properties.rho[p2]) * area,
     );
-    let u1 = var(p1);
-    let u2 = var(p2);
+    let u1 = var(properties, p1);
+    let u2 = var(properties, p2);
     return 0.5 * (f1 + f2) * scaled_normal - 0.5 * lambda * (u2 - u1);
 }
 
@@ -204,37 +272,38 @@ fn rusanov_vector(
 // with E = rho * e + 1/2 * rho * u^2
 // and p = (gamma - 1) * rho * e
 
-pub fn get_mass(p: &Properties) -> f64 {
-    p.mass
+impl Properties {
+    pub fn get_mass(&self, i: usize) -> DVector<f64> {
+        dvector![self.mass[i]]
+    }
+
+    pub fn update_mass<'a>(&'a mut self, i: usize, mass: &DVector<f64>) {
+        self.mass[i] = mass[0];
+    }
+
+    pub fn get_rho(&self, i: usize) -> f64 {
+        self.rho[i]
+    }
+
+    fn euler_mass_flux(&self, i: usize) -> Vector3<f64> {
+        self.rho[i] * self.u.column(i)
+    }
 }
 
-pub fn update_mass(p: &mut Properties, mass: f64) {
-    p.mass = mass;
-}
-
-pub fn get_rho(p: &Properties) -> f64 {
-    p.rho
-}
-
-fn euler_mass_flux(p: &Properties) -> Vector3<f64> {
-    return p.rho * p.u;
-}
-
-pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
+pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
     // mass conservation equation
     // d(rho)/dt + div(rho * u) = 0
-    let p = &problem.mesh.cells[i_p];
     let mut convective_flux = 0.;
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
-                let n = &problem.mesh.cells[i_n];
                 let f = &problem.mesh.faces[i_f];
                 convective_flux -= rusanov_scalar(
-                    euler_mass_flux,
-                    get_rho,
-                    &p.properties,
-                    &n.properties,
+                    &problem.cell_properties,
+                    Properties::euler_mass_flux,
+                    Properties::get_rho,
+                    i_p,
+                    i_n,
                     &(f.out_normal(i_p) * f.area),
                 );
             }
@@ -254,43 +323,48 @@ pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
             }
         }
     }
-    convective_flux
+    dvector![convective_flux]
 }
 
-pub fn get_momentum(p: &Properties) -> Vector3<f64> {
-    p.momentum
+impl Properties {
+    pub fn get_momentum(&self, i: usize) -> DVector<f64> {
+        // there has to be a better way to do this...
+        dvector![
+            self.momentum[(0, i)],
+            self.momentum[(1, i)],
+            self.momentum[(2, i)],
+        ]
+    }
+
+    pub fn update_momentum<'a>(&'a mut self, i: usize, momentum: &DVector<f64>) {
+        self.momentum.set_column(i, &momentum);
+    }
+
+    pub fn get_impulse(&self, i: usize) -> Vector3<f64> {
+        self.rho[i] * self.u.column(i)
+    }
+
+    fn euler_impulse_flux(&self, i: usize) -> Matrix3<f64> {
+        return self.rho[i] * self.u.column(i) * self.u.column(i).transpose()
+            + self.p[i] * Matrix3::identity();
+    }
 }
 
-pub fn update_momentum(p: &mut Properties, momentum: &Vector3<f64>) {
-    p.momentum[0] = momentum[0];
-    p.momentum[1] = momentum[1];
-    p.momentum[2] = momentum[2];
-}
-
-pub fn get_impulse(p: &Properties) -> Vector3<f64> {
-    p.rho * p.u
-}
-
-fn euler_impulse_flux(p: &Properties) -> Matrix3<f64> {
-    return p.rho * p.u * p.u.transpose() + p.p * Matrix3::identity();
-}
-
-pub fn euler_impulse(problem: &problem::Problem<Properties>, i_p: usize) -> Vector3<f64> {
+pub fn euler_impulse(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
     // momentum conservation equation
     // d(rho*u)/dt + div(1/rho * rho*u x rho*u + p * I) = 0
-    let p = &problem.mesh.cells[i_p];
-    let mut convective_flux = Vector3::new(0., 0., 0.);
+    let mut convective_flux = dvector![0., 0., 0.];
 
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
-                let n = &problem.mesh.cells[i_n];
                 let f = &problem.mesh.faces[i_f];
                 convective_flux -= rusanov_vector(
-                    euler_impulse_flux,
-                    get_impulse,
-                    &p.properties,
-                    &n.properties,
+                    &problem.cell_properties,
+                    Properties::euler_impulse_flux,
+                    Properties::get_impulse,
+                    i_p,
+                    i_n,
                     &(f.out_normal(i_p) * f.area),
                 );
             }
@@ -298,8 +372,9 @@ pub fn euler_impulse(problem: &problem::Problem<Properties>, i_p: usize) -> Vect
                 let f = &problem.mesh.faces[i_f];
                 match name {
                     "wall" => {
-                        convective_flux -=
-                            (p.properties.p * Matrix3::identity()) * f.out_normal(i_p) * f.area;
+                        convective_flux -= (problem.cell_properties.p[i_p] * Matrix3::identity())
+                            * f.out_normal(i_p)
+                            * f.area;
                         // impermeable wall
                     }
                     _ => {
@@ -315,41 +390,42 @@ pub fn euler_impulse(problem: &problem::Problem<Properties>, i_p: usize) -> Vect
     convective_flux
 }
 
-pub fn get_energy(p: &Properties) -> f64 {
-    p.energy
+impl Properties {
+    pub fn get_energy(&self, i: usize) -> DVector<f64> {
+        dvector![self.energy[i]]
+    }
+
+    pub fn update_energy<'a>(&'a mut self, i: usize, energy: &DVector<f64>) {
+        self.energy[i] = energy[0];
+    }
+
+    pub fn get_specific_energy(&self, i: usize) -> f64 {
+        self.p[i] / (self.gamma[i] - 1.)
+            + 0.5 * self.rho[i] * self.u.column(i).dot(&self.u.column(i))
+    }
+
+    fn euler_energy_flux(&self, i: usize) -> Vector3<f64> {
+        let en = self.get_specific_energy(i);
+        return self.u.column(i) * (en + self.p[i]);
+    }
 }
 
 #[allow(non_snake_case)]
-pub fn update_energy(p: &mut Properties, energy: f64) {
-    p.energy = energy;
-}
-
-pub fn get_specific_energy(p: &Properties) -> f64 {
-    p.p / (p.gamma - 1.) + 0.5 * p.rho * p.u.dot(&p.u)
-}
-
-fn euler_energy_flux(p: &Properties) -> Vector3<f64> {
-    let en = get_specific_energy(p);
-    return p.u * (en + p.p);
-}
-
-#[allow(non_snake_case)]
-pub fn euler_energy(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
+pub fn euler_energy(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
     // energy conservation equation
     // d(E) + div(u * (E + p)) = 0
-    let p = &problem.mesh.cells[i_p];
     let mut convective_flux = 0.;
 
     for neighbors in problem.neighbors(i_p) {
         match neighbors {
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
-                let n = &problem.mesh.cells[i_n];
                 let f = &problem.mesh.faces[i_f];
                 convective_flux -= rusanov_scalar(
-                    euler_energy_flux,
-                    get_specific_energy,
-                    &p.properties,
-                    &n.properties,
+                    &problem.cell_properties,
+                    Properties::euler_energy_flux,
+                    Properties::get_specific_energy,
+                    i_p,
+                    i_n,
                     &(f.out_normal(i_p) * f.area),
                 );
             }
@@ -370,5 +446,5 @@ pub fn euler_energy(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
             }
         }
     }
-    convective_flux
+    dvector![convective_flux]
 }

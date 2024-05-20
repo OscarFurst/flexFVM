@@ -1,7 +1,7 @@
 // for now all cells are rectangular parallelepipeds
 use crate::mesh::Mesh;
 use crate::{geometry_utils::*, problem};
-use nalgebra::{DVector, Point3, Vector3};
+use nalgebra::{DVector, Point3, RowDVector, Vector3};
 use std::fmt;
 
 ///////////////////////////
@@ -18,7 +18,7 @@ use std::fmt;
 pub struct CellData {
     pub faces: Vec<Vec<usize>>,
     pub r: Vec<Point3<f64>>,
-    pub volume: DVector<f64>,
+    pub volume: RowDVector<f64>,
     pub zone: Vec<usize>,
 }
 impl Default for CellData {
@@ -26,7 +26,7 @@ impl Default for CellData {
         CellData {
             faces: Vec::new(),
             r: Vec::new(),
-            volume: DVector::from_vec(Vec::new()),
+            volume: RowDVector::from_vec(Vec::new()),
             zone: Vec::new(),
         }
     }
@@ -35,7 +35,7 @@ impl CellData {
     pub fn push(&mut self, faces: Vec<usize>, r: Point3<f64>, volume: f64, zone: usize) {
         self.faces.push(faces);
         self.r.push(r);
-        self.volume = self.volume.push(volume);
+        self.volume = self.volume.transpose().push(volume).transpose();
         self.zone.push(zone);
     }
 
@@ -76,53 +76,22 @@ pub struct ComputationalCellMut<'a> {
     pub zone: &'a mut usize,
 }
 
-// TODO: this has to be produced by the user eventually
-// might be worth testing out copying the properties instead of using references
-#[allow(non_snake_case)]
-pub struct PropertySlice<'a> {
-    pub T: &'a f64,
-    pub rho: &'a f64,
-    pub cp: &'a f64,
-    pub lambda: &'a f64,
-}
-
-#[allow(non_snake_case)]
-pub struct PropertySliceMut<'a> {
-    pub T: &'a mut f64,
-    pub rho: &'a mut f64,
-    pub cp: &'a mut f64,
-    pub lambda: &'a mut f64,
-}
-
-#[allow(non_snake_case)]
-pub struct PropertySliceOwned {
-    pub T: f64,
-    pub rho: f64,
-    pub cp: f64,
-    pub lambda: f64,
-}
-
 pub trait HasProperties: Default + Clone + fmt::Debug {
     /// update_primitive is called after the new solution variables are computed.
     /// It is meant to update the properties that are directly derived from the solution variables
-    fn update_primitive(&mut self, _volume: &DVector<f64>) {}
+    fn update_primitive(&mut self, _volume: &RowDVector<f64>) {}
     /// update_integral is called after the mesh is generated
     /// It is meant to update the properties that are derived from the geometry of the cell,
     /// so that densities can be used in the problem initialization while the mass is the actual
     /// variable that is solved for.
-    fn update_integral(&mut self, _volume: &DVector<f64>) {}
+    fn update_integral(&mut self, _volume: &RowDVector<f64>) {}
     /// compute_derivatives is called after update_primitive, before the new right-hand side is computed.
     /// It is meant to compute the derivatives of the properties that are needed for extrapolation of face values.
     /// Typically, derivatives of the primitive variables are computed here.
     fn compute_derivatives(&mut self, _mesh: &Mesh) {}
     /// export is called when the solution is exported to a file.
-    fn export(&self) -> Vec<(String, &DVector<f64>)>;
-    /// slice returns a reference to the properties of the cell at the given index.
-    fn slice(&self, index: usize) -> PropertySlice;
-    /// slice_mut returns a mutable reference to the properties of the cell at the given index.
-    fn slice_mut(&mut self, index: usize) -> PropertySliceMut;
-    /// push adds the properties of the cell at the given index to the properties.
-    fn push(&mut self, slice: PropertySliceOwned);
+    // TODO : a data type that does not require a copy of the data. maybe an iterator?
+    fn export(&self) -> Vec<(String, Vec<f64>)>;
 }
 
 impl<'a> ComputationalCell<'a> {

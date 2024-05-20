@@ -1,7 +1,5 @@
-use flex_fvm::{
-    computational_cell::HasProperties, equation::*, generate_equation_structure, problem, solver,
-};
-use nalgebra::{dvector, DVector, Point3, Vector3};
+use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
+use nalgebra::{dvector, DVector, Matrix3xX, Point3, RowDVector, Vector3};
 use std::fmt;
 
 fn main() {
@@ -26,11 +24,11 @@ fn main() {
 ////////////////////////
 
 #[allow(non_snake_case)]
-#[derive(Default, Clone, Copy)]
+#[derive(Clone)]
 pub struct Properties {
     // physical properties
-    pub u: Vector3<f64>, // K
-    pub nu: f64,         // kg/m3
+    pub u: Matrix3xX<f64>,   // K
+    pub nu: RowDVector<f64>, // kg/m3
 }
 
 impl fmt::Debug for Properties {
@@ -39,25 +37,44 @@ impl fmt::Debug for Properties {
     }
 }
 
-impl HasProperties for Properties {
-    fn update_primitive(&mut self, volume: f64) {
-        // here we can update derived variables if needed
+impl Default for Properties {
+    fn default() -> Self {
+        Properties {
+            u: Matrix3xX::from_vec(vec![]),
+            nu: RowDVector::from_vec(vec![]),
+        }
     }
+}
 
-    fn export(&self) -> Vec<(String, f64)> {
+impl HasProperties for Properties {
+    fn export(&self) -> Vec<(String, Vec<f64>)> {
         vec![
-            ("ux".to_string(), self.u[0]),
-            ("uy".to_string(), self.u[1]),
-            ("uz".to_string(), self.u[2]),
+            (
+                "ux".to_string(),
+                self.u.row(0).clone_owned().data.as_slice().to_vec(),
+            ),
+            (
+                "uy".to_string(),
+                self.u.row(1).clone_owned().data.as_slice().to_vec(),
+            ),
+            (
+                "uz".to_string(),
+                self.u.row(2).clone_owned().data.as_slice().to_vec(),
+            ),
         ]
     }
 }
 
-pub fn material(position: &Point3<f64>) -> Properties {
-    Properties {
-        u: Vector3::new(f64::exp(-position.x.powi(2) / 2.), 0., 0.),
-        nu: 1.,
-    }
+pub fn push_to_matrix(matrix: &Matrix3xX<f64>, value: Vector3<f64>) -> Matrix3xX<f64> {
+    Matrix3xX::from_vec(vec![matrix.data.as_slice(), value.data.as_slice()].concat())
+}
+
+pub fn material(properties: &mut Properties, position: &Point3<f64>) {
+    properties.u = push_to_matrix(
+        &properties.u,
+        Vector3::new(f64::exp(-position.x.powi(2) / 2.), 0., 0.),
+    );
+    properties.nu = properties.nu.transpose().push(1.0).transpose();
 }
 
 ///////////////////////
@@ -67,8 +84,12 @@ pub fn material(position: &Point3<f64>) -> Properties {
 #[allow(non_snake_case)]
 pub fn create_mesh() -> problem::Problem<Properties> {
     // pack the equations
-    let heat_diffusion_equations =
-        generate_equation_structure!(get_u, update_u, burgers_equation, 3);
+    let heat_diffusion_equations = Equation {
+        get: Properties::get_u,
+        lhs: Properties::update_u,
+        rhs: burgers_equation,
+        dimension: 3,
+    };
     // define the boundary conditions
     // left
     let bc1 = BoundaryCondition("periodic".to_string(), dvector![1., 0., 0.]);
@@ -94,38 +115,34 @@ pub fn create_mesh() -> problem::Problem<Properties> {
 /////////////////////////
 /// Burgers' equation ///
 /////////////////////////
-#[allow(non_snake_case)]
-pub fn get_u(p: &Properties) -> Vector3<f64> {
-    p.u
-}
+impl Properties {
+    pub fn get_u(&self, i: usize) -> DVector<f64> {
+        dvector![self.u[(0, i)], self.u[(1, i)], self.u[(2, i)]]
+    }
 
-#[allow(non_snake_case)]
-pub fn update_u(p: &mut Properties, u: &Vector3<f64>) {
-    p.u[0] = u[0];
-    p.u[1] = u[1];
-    p.u[2] = u[2];
-}
+    pub fn update_u(&mut self, i: usize, u: &DVector<f64>) {
+        self.u.set_column(i, u);
+    }
 
-fn upwind<'a>(left: &'a Properties, right: &'a Properties, normal: Vector3<f64>) -> &'a Properties {
-    if left.u.dot(&normal) >= 0. {
-        left
-    } else {
-        right
+    pub fn upwind(&self, left: usize, right: usize, normal: Vector3<f64>) -> usize {
+        if self.u.column(left).dot(&normal) >= 0. {
+            left
+        } else {
+            right
+        }
     }
 }
 
-pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> Vector3<f64> {
+pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
     // du/dt + div(u^2)/2 = 0
-    let p = &problem.mesh.cells[i_p];
-    let mut advective_flux = Vector3::zeros();
+    let mut advective_flux = dvector![0., 0., 0.];
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             // flux term for a normal neighbor
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
-                let n = &problem.mesh.cells[i_n];
                 let f = &problem.mesh.faces[i_f];
-                let upwind_properties = upwind(&p.properties, &n.properties, f.out_normal(i_p));
-                let u_upwind = upwind_properties.u;
+                let i_up = problem.cell_properties.upwind(i_p, i_n, f.out_normal(i_p));
+                let u_upwind = problem.cell_properties.u.column(i_up);
                 advective_flux -= 0.5 * u_upwind.dot(&u_upwind) * f.area * f.out_normal(i_p);
             }
             // flux term for a boundary condition
@@ -139,5 +156,5 @@ pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> V
             }
         }
     }
-    advective_flux / p.volume
+    advective_flux / problem.mesh.cells.volume[i_p]
 }

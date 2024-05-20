@@ -1,8 +1,5 @@
-use flex_fvm::computational_cell::{PropertySlice, PropertySliceMut, PropertySliceOwned};
-use flex_fvm::{
-    computational_cell::HasProperties, equation::*, generate_equation_structure, problem, solver,
-};
-use nalgebra::{dvector, DVector, Point3};
+use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
+use nalgebra::{dvector, DVector, Point3, RowDVector};
 use std::fmt;
 use std::time::Instant;
 
@@ -38,11 +35,11 @@ fn main() {
 #[derive(Clone)]
 pub struct Properties {
     // physical properties
-    pub T: DVector<f64>,   // K
-    pub rho: DVector<f64>, // kg/m3
-    pub cp: DVector<f64>,  // J/k/kg
+    pub T: RowDVector<f64>,   // K
+    pub rho: RowDVector<f64>, // kg/m3
+    pub cp: RowDVector<f64>,  // J/k/kg
     // solid
-    pub lambda: DVector<f64>, // W/m/k
+    pub lambda: RowDVector<f64>, // W/m/k
 }
 
 impl fmt::Debug for Properties {
@@ -52,43 +49,18 @@ impl fmt::Debug for Properties {
 }
 
 impl HasProperties for Properties {
-    fn export(&self) -> Vec<(String, &DVector<f64>)> {
-        vec![("T".to_string(), &self.T)]
-    }
-
-    fn slice(&self, index: usize) -> PropertySlice {
-        PropertySlice {
-            T: &self.T[index],
-            rho: &self.rho[index],
-            cp: &self.cp[index],
-            lambda: &self.lambda[index],
-        }
-    }
-
-    fn slice_mut(&mut self, index: usize) -> PropertySliceMut {
-        PropertySliceMut {
-            T: &mut self.T[index],
-            rho: &mut self.rho[index],
-            cp: &mut self.cp[index],
-            lambda: &mut self.lambda[index],
-        }
-    }
-
-    fn push(&mut self, slice: PropertySliceOwned) {
-        self.T = self.T.push(slice.T);
-        self.rho = self.rho.push(slice.rho);
-        self.cp = self.cp.push(slice.cp);
-        self.lambda = self.lambda.push(slice.lambda);
+    fn export(&self) -> Vec<(String, Vec<f64>)> {
+        vec![("T".to_string(), self.T.data.as_slice().to_vec())]
     }
 }
 
 impl Default for Properties {
     fn default() -> Self {
         Properties {
-            T: DVector::from(Vec::new()),
-            rho: DVector::from(Vec::new()),
-            cp: DVector::from(Vec::new()),
-            lambda: DVector::from(Vec::new()),
+            T: RowDVector::from(Vec::new()),
+            rho: RowDVector::from(Vec::new()),
+            cp: RowDVector::from(Vec::new()),
+            lambda: RowDVector::from(Vec::new()),
         }
     }
 }
@@ -96,20 +68,22 @@ impl Default for Properties {
 /// Copper data ///
 ///////////////////
 
-pub fn copper(_position: &Point3<f64>) -> PropertySliceOwned {
-    PropertySliceOwned {
-        T: 0.,
-        rho: 9000.,
-        cp: 0.001,
-        lambda: 300.,
-    }
+pub fn copper(properties: &mut Properties, _position: &Point3<f64>) {
+    properties.T = properties.T.transpose().push(0.).transpose();
+    properties.rho = properties.rho.transpose().push(9000.).transpose();
+    properties.cp = properties.cp.transpose().push(0.001).transpose();
+    properties.lambda = properties.lambda.transpose().push(300.).transpose();
 }
 
 #[allow(non_snake_case)]
 pub fn create_mesh() -> problem::Problem<Properties> {
     // pack the equations
-    let heat_diffusion_equations =
-        generate_equation_structure!(get_T, update_T_user, heat_diffusion_user, 1);
+    let heat_diffusion_equations = Equation {
+        get: Properties::get_T,
+        lhs: Properties::update_T,
+        rhs: heat_diffusion,
+        dimension: 1,
+    };
     // define the boundary conditions
     // left
     let bc1 = BoundaryCondition("dirichlet".to_string(), dvector![300.]);
@@ -196,41 +170,38 @@ pub fn create_mesh() -> problem::Problem<Properties> {
 /// Heat diffusion equation ///
 ///////////////////////////////
 #[allow(non_snake_case)]
-pub fn get_T(p: PropertySlice) -> f64 {
-    *p.T
+impl Properties {
+    pub fn get_T(&self, i: usize) -> DVector<f64> {
+        dvector![self.T[i]]
+    }
+
+    pub fn update_T<'a>(&'a mut self, i: usize, T: &DVector<f64>) {
+        self.T[i] = T[0];
+    }
 }
 
-#[allow(non_snake_case)]
-pub fn update_T_user(p: PropertySliceMut, T: f64) {
-    *p.T = T;
-}
-
-pub fn heat_diffusion_user(problem: &problem::Problem<Properties>, i_p: usize) -> f64 {
-    // TODO : deal with boundary conditions
-    let p = &problem
-        .mesh
-        .cells
-        .get_cell(i_p, problem.cell_properties.slice(i_p));
+pub fn heat_diffusion(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
     let mut flux = 0.;
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             problem::NeighborReturn::Internal(i_n, i_f, distance) => {
-                let n = &problem
-                    .mesh
-                    .cells
-                    .get_cell(i_n, problem.cell_properties.slice(i_n));
                 let f = &problem.mesh.faces[i_f];
-                flux -= p.properties.lambda * (p.properties.T - n.properties.T) / distance * f.area;
+                flux -= problem.cell_properties.lambda[i_p]
+                    * (problem.cell_properties.T[i_p] - problem.cell_properties.T[i_n])
+                    / distance
+                    * f.area;
             }
             problem::NeighborReturn::Boundary(name, i_f, distance, values) => {
                 let f = &problem.mesh.faces[i_f];
                 match name {
                     "dirichlet" => {
-                        flux -=
-                            p.properties.lambda * (p.properties.T - values[0]) / distance * f.area;
+                        flux -= problem.cell_properties.lambda[i_p]
+                            * (problem.cell_properties.T[i_p] - values[0])
+                            / distance
+                            * f.area;
                     }
                     "neumann" => {
-                        flux -= values[0];
+                        flux -= values[0] * f.area;
                     }
                     _ => {
                         panic!("Unknown boundary condition : {}", name);
@@ -242,5 +213,9 @@ pub fn heat_diffusion_user(problem: &problem::Problem<Properties>, i_p: usize) -
             }
         }
     }
-    flux / p.volume / p.properties.rho / p.properties.cp
+    dvector![
+        flux / problem.mesh.cells.volume[i_p]
+            / problem.cell_properties.rho[i_p]
+            / problem.cell_properties.cp[i_p]
+    ]
 }

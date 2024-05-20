@@ -1,4 +1,4 @@
-use crate::computational_cell::{HasProperties, PropertySlice, PropertySliceMut};
+use crate::computational_cell::HasProperties;
 use nalgebra::DVector;
 
 /// A BoundaryCondition is a combination of :
@@ -16,79 +16,11 @@ pub struct BoundaryCondition(pub String, pub DVector<f64>);
 // - a list (Vec) of possible boundary conditions
 #[derive(Copy, Clone)]
 pub struct Equation<T: HasProperties> {
-    pub get: fn(PropertySlice) -> DVector<f64>,
-    pub lhs: fn(PropertySliceMut, &DVector<f64>),
+    pub get: fn(&T, usize) -> DVector<f64>,
+    pub lhs: fn(&mut T, usize, &DVector<f64>),
     pub rhs: fn(&crate::problem::Problem<T>, usize) -> DVector<f64>,
     pub dimension: usize,
 }
 
-#[macro_export]
-macro_rules! generate_equation_structure {
-    ($get_function:ident, $update_function:ident, $equation_function:ident, 1) => {
-        Equation {
-            get: flex_fvm::generate_get_function!($get_function, 1),
-            lhs: flex_fvm::generate_update_function!($update_function, 1),
-            rhs: flex_fvm::generate_equation_function!($equation_function, 1),
-            dimension: 1,
-        }
-    };
-    ($get_function:ident, $update_function:ident, $equation_function:ident, $SomeType:expr) => {
-        Equation {
-            get: flex_fvm::generate_get_function!($get_function, $SomeType),
-            lhs: flex_fvm::generate_update_function!($update_function, $SomeType),
-            rhs: flex_fvm::generate_equation_function!($equation_function, $SomeType),
-            dimension: $SomeType,
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! generate_get_function {
-    // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
-    // into a function that operates on a DVector<f64>, which is used by the solver
-    ($user_get_function:ident, 1) => {
-        |p: flex_fvm::computational_cell::PropertySlice| -> DVector<f64> { dvector![$user_get_function(p)] }
-            as fn(flex_fvm::computational_cell::PropertySlice) -> DVector<f64>
-    };
-    ($user_get_function:ident, $SomeType:expr) => {
-        |p: flex_fvm::computational_cell::PropertySlice| -> DVector<f64> {
-            nalgebra::DVector::from_vec($user_get_function(p).as_slice().to_vec()) // TODO : this might be slow as heck
-        } as fn(flex_fvm::computational_cell::PropertySlice) -> DVector<f64>
-    };
-}
-
-#[macro_export]
-macro_rules! generate_update_function {
-    // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
-    // into a function that operates on a DVector<f64>, which is used by the solver
-    ($user_update_function:ident, 1) => {
-        |p: flex_fvm::computational_cell::PropertySliceMut, v2: &DVector<f64>| -> () {
-            let v1: f64 = v2[0];
-            $user_update_function(p, v1);
-        } as fn(flex_fvm::computational_cell::PropertySliceMut, &DVector<f64>)
-    };
-    ($user_update_function:ident, $SomeType:expr) => {
-        |p: flex_fvm::computational_cell::PropertySliceMut, v2: &DVector<f64>| -> () {
-            let v1: nalgebra::SVector<f64, $SomeType> = nalgebra::SVector::from_vec(v2.as_slice().to_vec()); // TODO : this might be slow as heck
-            $user_update_function(p, &v1);
-        } as fn(flex_fvm::computational_cell::PropertySliceMut, &DVector<f64>);
-    };
-}
-
-#[macro_export]
-macro_rules! generate_equation_function {
-    // this macro transforms a user defined function that operates on a "convenient" data type like f64 or Vector3<f64>
-    // into a function that operates on a DVector<f64>, which is used by the solver
-    ($user_equation_function:ident, 1) => {
-        |m: &flex_fvm::problem::Problem<Properties>, p: usize| -> DVector<f64> {
-            let v1: f64 = $user_equation_function(m, p);
-            dvector![v1]
-        } as fn(&flex_fvm::problem::Problem<Properties>, usize) -> DVector<f64>
-    };
-    ($user_equation_function:ident, $SomeType:expr) => {
-        |m: &flex_fvm::problem::Problem<Properties>, p: usize| -> DVector<f64> {
-            let v1: nalgebra::SVector<f64, $SomeType> = $user_equation_function(m, p);
-            DVector::from_vec(v1.as_slice().to_vec())
-        } as fn(&flex_fvm::problem::Problem<Properties>, usize) -> DVector<f64>;
-    };
-}
+// TODO : implement macros so that the user can simply provides a list of variable names and their dimensions
+// and the macros will generate the property data structure, the get and the set procedures.

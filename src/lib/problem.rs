@@ -1,7 +1,4 @@
-use crate::computational_cell::{
-    ComputationalCell, ComputationalCellMut, HasProperties, NeighborType, PropertySlice,
-    PropertySliceMut, PropertySliceOwned,
-};
+use crate::computational_cell::{HasProperties, NeighborType};
 use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
 use crate::mesh::Mesh;
@@ -57,7 +54,7 @@ impl<T: HasProperties> Problem<T> {
         (nx, ny, nz): (usize, usize, usize),
         bc: [Option<BoundaryCondition>; 6],
         equations: Vec<equation::Equation<T>>,
-        internal_props: fn(&Point3<f64>) -> PropertySliceOwned,
+        internal_props: fn(&mut T, &Point3<f64>),
     ) -> &mut Problem<T> {
         let zone_id = self.equation_containers.len();
         // TODO: I could not think of an elegant way to pass boundary conditions
@@ -116,7 +113,7 @@ impl<T: HasProperties> Problem<T> {
                         origin + ex * (i + 1) as f64 + ey * (j + 1) as f64 + ez * (k + 1) as f64;
                     let cell_center = cell_origin + (cell_ending - cell_origin) / 2.0;
                     let cell_index = self.mesh.add_hex_cell(cell_origin, cell_ending, zone_id);
-                    self.cell_properties.push(internal_props(&cell_center));
+                    internal_props(&mut self.cell_properties, &cell_center);
                     zone_cell_indices.push(cell_index);
                     // check if at boundary. if so, create boundary condition
                     if i == 0 {
@@ -241,8 +238,7 @@ impl<T: HasProperties> Problem<T> {
                     layer
                         .cell_indices
                         .iter()
-                        .map(|&i| self.cell_properties.slice(i))
-                        .map(|cell| (eq.get)(cell))
+                        .map(|&i| (eq.get)(&self.cell_properties, i))
                         .sum(),
                 );
             }
@@ -257,7 +253,7 @@ impl<T: HasProperties> Problem<T> {
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    x.push((eq.get)(self.cell_properties.slice(*i_cell)));
+                    x.push((eq.get)(&self.cell_properties, *i_cell));
                 }
             }
         }
@@ -282,7 +278,7 @@ impl<T: HasProperties> Problem<T> {
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    (eq.lhs)(self.cell_properties.slice_mut(*i_cell), &x[i]);
+                    (eq.lhs)(&mut self.cell_properties, *i_cell, &x[i]);
                     i += 1;
                 }
             }
@@ -402,7 +398,7 @@ impl<T: HasProperties> Problem<T> {
                                     num_comp: 1,
                                     lookup_table: None,
                                 },
-                                data: vtkio::IOBuffer::F64(values.data.clone().into()),
+                                data: vtkio::IOBuffer::F64(values.to_vec()),
                             }));
                         }
                         attributes_items
@@ -446,23 +442,6 @@ impl<T: HasProperties> Problem<T> {
         wtr.flush()?;
         Ok(())
     }
-
-    pub fn get_cell<'a>(&'a self, i_cell: usize) -> (ComputationalCell<'a>, PropertySlice<'a>) {
-        (
-            self.mesh.cells.get_cell(i_cell),
-            self.cell_properties.slice(i_cell),
-        )
-    }
-
-    pub fn get_cell_mut<'a>(
-        &'a mut self,
-        i_cell: usize,
-    ) -> (ComputationalCellMut<'a>, PropertySliceMut<'a>) {
-        (
-            self.mesh.cells.get_cell_mut(i_cell),
-            self.cell_properties.slice_mut(i_cell),
-        )
-    }
 }
 
 impl<T: HasProperties> Default for Problem<T> {
@@ -473,21 +452,19 @@ impl<T: HasProperties> Default for Problem<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::computational_cell::{
-        HasProperties, PropertySlice, PropertySliceMut, PropertySliceOwned,
-    };
-    use nalgebra::DVector;
+    use crate::computational_cell::HasProperties;
+    use nalgebra::RowDVector;
     use std::fmt;
 
     #[allow(non_snake_case)]
     #[derive(Clone)]
     pub struct Properties {
         // physical properties
-        pub T: DVector<f64>,   // K
-        pub rho: DVector<f64>, // kg/m3
-        pub cp: DVector<f64>,  // J/k/kg
+        pub T: RowDVector<f64>,   // K
+        pub rho: RowDVector<f64>, // kg/m3
+        pub cp: RowDVector<f64>,  // J/k/kg
         // solid
-        pub lambda: DVector<f64>, // W/m/k
+        pub lambda: RowDVector<f64>, // W/m/k
     }
 
     impl fmt::Debug for Properties {
@@ -497,43 +474,18 @@ mod tests {
     }
 
     impl HasProperties for Properties {
-        fn export(&self) -> Vec<(String, &DVector<f64>)> {
-            vec![("T".to_string(), &self.T)]
-        }
-
-        fn slice(&self, index: usize) -> PropertySlice {
-            PropertySlice {
-                T: &self.T[index],
-                rho: &self.rho[index],
-                cp: &self.cp[index],
-                lambda: &self.lambda[index],
-            }
-        }
-
-        fn slice_mut(&mut self, index: usize) -> PropertySliceMut {
-            PropertySliceMut {
-                T: &mut self.T[index],
-                rho: &mut self.rho[index],
-                cp: &mut self.cp[index],
-                lambda: &mut self.lambda[index],
-            }
-        }
-
-        fn push(&mut self, slice: PropertySliceOwned) {
-            self.T = self.T.push(slice.T);
-            self.rho = self.rho.push(slice.rho);
-            self.cp = self.cp.push(slice.cp);
-            self.lambda = self.lambda.push(slice.lambda);
+        fn export(&self) -> Vec<(String, Vec<f64>)> {
+            vec![("T".to_string(), self.T.data.as_slice().to_vec())]
         }
     }
 
     impl Default for Properties {
         fn default() -> Self {
             Properties {
-                T: DVector::from(Vec::new()),
-                rho: DVector::from(Vec::new()),
-                cp: DVector::from(Vec::new()),
-                lambda: DVector::from(Vec::new()),
+                T: RowDVector::from(Vec::new()),
+                rho: RowDVector::from(Vec::new()),
+                cp: RowDVector::from(Vec::new()),
+                lambda: RowDVector::from(Vec::new()),
             }
         }
     }
@@ -546,12 +498,12 @@ mod tests {
             nalgebra::Point3::new(1., 1., 1.),
             0,
         );
-        problem.cell_properties.push(PropertySliceOwned {
-            T: 300.,
-            rho: 1.,
-            cp: 1000.,
-            lambda: 1.,
-        });
+        problem.cell_properties = Properties {
+            T: RowDVector::from_vec(vec![300.]),
+            rho: RowDVector::from_vec(vec![1.]),
+            cp: RowDVector::from_vec(vec![1000.]),
+            lambda: RowDVector::from_vec(vec![1.]),
+        };
 
         problem.export_to_vtk("single_cell_mesh.vtk");
     }
@@ -569,18 +521,12 @@ mod tests {
             nalgebra::Point3::new(2., 1., 1.),
             0,
         );
-        problem.cell_properties.push(PropertySliceOwned {
-            T: 300.,
-            rho: 1.,
-            cp: 1000.,
-            lambda: 1.,
-        });
-        problem.cell_properties.push(PropertySliceOwned {
-            T: 400.,
-            rho: 1.,
-            cp: 1000.,
-            lambda: 1.,
-        });
+        problem.cell_properties = Properties {
+            T: RowDVector::from_vec(vec![300., 400.]),
+            rho: RowDVector::from_vec(vec![1., 1.]),
+            cp: RowDVector::from_vec(vec![1000., 1000.]),
+            lambda: RowDVector::from_vec(vec![1., 1.]),
+        };
         problem.export_to_vtk("double_cell_mesh.vtk");
     }
 }
