@@ -130,7 +130,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     //     Some(bc2.clone()),
     //     None,
     // ];
-    let n_grid = (2 * 128, 2 * 128, 1);
+    let n_grid = (128, 128, 1);
     let mut block: problem::Problem<Properties> = problem::Problem::new();
     let mass_eq = generate_equation_structure!(get_mass, update_mass, euler_mass, 1);
     let impulse_eq = generate_equation_structure!(get_momentum, update_momentum, euler_impulse, 3);
