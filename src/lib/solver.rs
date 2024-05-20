@@ -49,13 +49,7 @@ pub fn solve<T: HasProperties>(
     while t < t_end {
         // update progress bar
         pb.inc(1);
-        let mut cons_msg = String::new();
-        for el in problem.sum_conservation_variables() {
-            for val in el.iter() {
-                cons_msg.push_str(&format!("  {:>+7.5} ", val));
-            }
-        }
-        pb.set_message(format!("t = {:.2} s, convervation:", t) + cons_msg.as_str());
+        pb.set_message(format!("t = {:.2} s", t));
         // solve
         let y = (solver)(&mut problem, t, &mut x, h0);
         if stop_criterial(&y, t) {

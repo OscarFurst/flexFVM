@@ -1,9 +1,12 @@
-use crate::computational_cell::{HasProperties, NeighborType, PropertySliceOwned};
+use crate::computational_cell::{
+    ComputationalCell, ComputationalCellMut, HasProperties, NeighborType, PropertySlice,
+    PropertySliceMut, PropertySliceOwned,
+};
 use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
 use crate::mesh::Mesh;
 use indicatif::ProgressBar;
-use nalgebra::{DVector, Point3, Storage, Vector3};
+use nalgebra::{DVector, Point3, Vector3};
 use std::error::Error;
 use std::fs::File;
 use std::path::PathBuf;
@@ -160,7 +163,7 @@ impl<T: HasProperties> Problem<T> {
                 "periodic" => {
                     // search for the other face with the same boundary condition
                     let mut found_twin = false;
-                    if self.mesh.faces.len() != 0 {
+                    if !self.mesh.faces.is_empty() {
                         let twin_direction = Vector3::new(values[0], values[1], values[2]);
                         for i in 0..self.mesh.faces.len() {
                             if let NeighborType::Boundary(face_bc_index) =
@@ -299,7 +302,7 @@ impl<T: HasProperties> Problem<T> {
     /// - an internal cell (index, distance between centers)
     /// - a boundary condition (name, some values)
     /// - Nil (no neighbor, should only be encountered in 2D or 1D meshes)
-    pub fn neighbors<'a>(&self, i_cell: usize) -> Vec<NeighborReturn> {
+    pub fn neighbors(&self, i_cell: usize) -> Vec<NeighborReturn> {
         self.mesh.cells.faces[i_cell]
             .iter()
             .map(|i_face| match self.mesh.faces[*i_face].neighbor {
@@ -339,7 +342,7 @@ impl<T: HasProperties> Problem<T> {
             cell_indices.push(
                 self.mesh
                     .cells
-                    .get_cell(i, self.cell_properties.slice(i))
+                    .get_cell(i)
                     .hexahedron_vertices(&self.mesh)
                     .iter()
                     .map(|&x| x as u64)
@@ -443,6 +446,23 @@ impl<T: HasProperties> Problem<T> {
         wtr.flush()?;
         Ok(())
     }
+
+    pub fn get_cell<'a>(&'a self, i_cell: usize) -> (ComputationalCell<'a>, PropertySlice<'a>) {
+        (
+            self.mesh.cells.get_cell(i_cell),
+            self.cell_properties.slice(i_cell),
+        )
+    }
+
+    pub fn get_cell_mut<'a>(
+        &'a mut self,
+        i_cell: usize,
+    ) -> (ComputationalCellMut<'a>, PropertySliceMut<'a>) {
+        (
+            self.mesh.cells.get_cell_mut(i_cell),
+            self.cell_properties.slice_mut(i_cell),
+        )
+    }
 }
 
 impl<T: HasProperties> Default for Problem<T> {
@@ -500,10 +520,10 @@ mod tests {
         }
 
         fn push(&mut self, slice: PropertySliceOwned) {
-            self.T.push(slice.T);
-            self.rho.push(slice.rho);
-            self.cp.push(slice.cp);
-            self.lambda.push(slice.lambda);
+            self.T = self.T.push(slice.T);
+            self.rho = self.rho.push(slice.rho);
+            self.cp = self.cp.push(slice.cp);
+            self.lambda = self.lambda.push(slice.lambda);
         }
     }
 

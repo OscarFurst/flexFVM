@@ -1,6 +1,4 @@
-use std::vec;
-
-use crate::computational_cell::{CellData, ComputationalCell, Face, HasProperties, NeighborType};
+use crate::computational_cell::{CellData, Face, NeighborType};
 use crate::geometry_utils::{polyhedron_center, polyhedron_volume};
 use nalgebra::{Point3, Vector3};
 
@@ -224,12 +222,6 @@ impl Default for Mesh {
 
 #[cfg(test)]
 mod tests {
-    use crate::computational_cell::{
-        HasProperties, PropertySlice, PropertySliceMut, PropertySliceOwned,
-    };
-    use nalgebra::DVector;
-    use std::fmt;
-
     #[test]
     fn single_cell_mesh() {
         let mut mesh: crate::mesh::Mesh = crate::mesh::Mesh::new();

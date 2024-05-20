@@ -1,8 +1,7 @@
 // for now all cells are rectangular parallelepipeds
 use crate::mesh::Mesh;
 use crate::{geometry_utils::*, problem};
-use nalgebra::{DMatrix, DVector, Matrix3, Point3, VecStorage, Vector3};
-use nalgebra::{Dyn, MatrixXx3, U3};
+use nalgebra::{DVector, Point3, Vector3};
 use std::fmt;
 
 ///////////////////////////
@@ -40,30 +39,20 @@ impl CellData {
         self.zone.push(zone);
     }
 
-    pub fn get_cell<'a>(
-        &'a self,
-        i_cell: usize,
-        properties: PropertySlice<'a>,
-    ) -> ComputationalCell<'a> {
+    pub fn get_cell<'a>(&'a self, i_cell: usize) -> ComputationalCell<'a> {
         ComputationalCell {
             faces: &self.faces[i_cell],
             r: &self.r[i_cell],
             volume: &self.volume[i_cell],
-            properties,
             zone: &self.zone[i_cell],
         }
     }
 
-    pub fn get_cell_mut<'a>(
-        &'a mut self,
-        i_cell: usize,
-        properties: PropertySliceMut<'a>,
-    ) -> ComputationalCellMut<'a> {
+    pub fn get_cell_mut<'a>(&'a mut self, i_cell: usize) -> ComputationalCellMut<'a> {
         ComputationalCellMut {
             faces: &self.faces[i_cell],
             r: &mut self.r[i_cell],
             volume: &mut self.volume[i_cell],
-            properties,
             zone: &mut self.zone[i_cell],
         }
     }
@@ -75,7 +64,6 @@ pub struct ComputationalCell<'a> {
     // geometric properties
     pub r: &'a Point3<f64>, // m
     pub volume: &'a f64,    // m3
-    pub properties: PropertySlice<'a>,
     pub zone: &'a usize,
 }
 
@@ -85,12 +73,12 @@ pub struct ComputationalCellMut<'a> {
     // geometric properties
     pub r: &'a mut Point3<f64>, // m
     pub volume: &'a mut f64,    // m3
-    pub properties: PropertySliceMut<'a>,
     pub zone: &'a mut usize,
 }
 
 // TODO: this has to be produced by the user eventually
 // might be worth testing out copying the properties instead of using references
+#[allow(non_snake_case)]
 pub struct PropertySlice<'a> {
     pub T: &'a f64,
     pub rho: &'a f64,
@@ -98,6 +86,7 @@ pub struct PropertySlice<'a> {
     pub lambda: &'a f64,
 }
 
+#[allow(non_snake_case)]
 pub struct PropertySliceMut<'a> {
     pub T: &'a mut f64,
     pub rho: &'a mut f64,
@@ -105,6 +94,7 @@ pub struct PropertySliceMut<'a> {
     pub lambda: &'a mut f64,
 }
 
+#[allow(non_snake_case)]
 pub struct PropertySliceOwned {
     pub T: f64,
     pub rho: f64,
@@ -276,9 +266,9 @@ impl Face {
 
     pub fn out_normal(&self, i_cell: usize) -> Vector3<f64> {
         if self.is_owner(i_cell) {
-            self.normal.clone()
+            self.normal
         } else {
-            -self.normal.clone()
+            -self.normal
         }
     }
 
