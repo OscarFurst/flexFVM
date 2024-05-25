@@ -17,7 +17,7 @@ pub struct BoundaryCondition(pub String, pub DVector<f64>);
 #[derive(Copy, Clone)]
 pub struct Equation<T: HasProperties> {
     pub get: fn(&T, usize) -> DVector<f64>,
-    pub lhs: fn(&mut T, usize, &DVector<f64>),
+    pub lhs: fn(&mut T, usize, &[f64]),
     pub rhs: fn(&crate::problem::Problem<T>, usize) -> DVector<f64>,
     pub dimension: usize,
 }

@@ -14,6 +14,6 @@ pub struct EquationContainer<T: HasProperties> {
 impl<T: HasProperties> EquationContainer<T> {
     pub fn n_eq(&self) -> usize {
         // returns the total number of equations that need to be solved for the layer
-        self.cell_indices.len() * self.equations.len()
+        self.cell_indices.len() * self.equations.iter().map(|e| e.dimension).sum::<usize>()
     }
 }

@@ -246,39 +246,49 @@ impl<T: HasProperties> Problem<T> {
         sums
     }
 
-    pub fn get_state(&self) -> Vec<DVector<f64>> {
+    pub fn get_state(&self) -> DVector<f64> {
         // returns the current state of the mesh
-        let mut x: Vec<DVector<f64>> = Vec::with_capacity(self.n_eq());
+        let mut x: DVector<f64> = DVector::zeros(self.n_eq());
+        let mut i = 0;
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    x.push((eq.get)(&self.cell_properties, *i_cell));
+                    x.rows_mut(i, eq.dimension)
+                        .copy_from(&(eq.get)(&self.cell_properties, *i_cell));
+                    i += eq.dimension;
                 }
             }
         }
         x
     }
 
-    pub fn setup_equations(&self, _t: &f64, _x: &[DVector<f64>]) -> Vec<DVector<f64>> {
-        let mut y = vec![];
+    pub fn setup_equations(&self, _t: &f64) -> DVector<f64> {
+        let mut y: DVector<f64> = DVector::zeros(self.n_eq());
+        let mut i = 0;
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    y.push((eq.rhs)(self, *i_cell))
+                    y.rows_mut(i, eq.dimension)
+                        .copy_from(&(eq.rhs)(self, *i_cell));
+                    i += eq.dimension;
                 }
             }
         }
         y
     }
 
-    pub fn update(&mut self, x: &[DVector<f64>]) {
+    pub fn update(&mut self, x: &DVector<f64>) {
         // takes the solution and updates every cell with it
         let mut i = 0;
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
-                    (eq.lhs)(&mut self.cell_properties, *i_cell, &x[i]);
-                    i += 1;
+                    (eq.lhs)(
+                        &mut self.cell_properties,
+                        *i_cell,
+                        &x.as_slice()[i..i + eq.dimension],
+                    );
+                    i += eq.dimension;
                 }
             }
         }

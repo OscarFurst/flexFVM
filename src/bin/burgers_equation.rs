@@ -120,8 +120,8 @@ impl Properties {
         dvector![self.u[(0, i)], self.u[(1, i)], self.u[(2, i)]]
     }
 
-    pub fn update_u(&mut self, i: usize, u: &DVector<f64>) {
-        self.u.set_column(i, u);
+    pub fn update_u(&mut self, i: usize, u: &[f64]) {
+        self.u.column_mut(i).copy_from_slice(u);
     }
 
     pub fn upwind(&self, left: usize, right: usize, normal: Vector3<f64>) -> usize {

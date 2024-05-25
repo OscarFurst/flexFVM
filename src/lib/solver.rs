@@ -15,7 +15,7 @@ pub fn solve<T: HasProperties>(
     initial_problem: &Problem<T>,
     t_end: f64,
     h0: f64,
-    solver: fn(&mut Problem<T>, f64, &mut Vec<DVector<f64>>, f64) -> Vec<DVector<f64>>,
+    solver: fn(&mut Problem<T>, f64, &mut DVector<f64>, f64) -> DVector<f64>,
     output_args: SolverOutputArgs,
 ) -> Problem<T> {
     let mut problem = initial_problem.clone();
@@ -90,15 +90,13 @@ pub fn solve<T: HasProperties>(
 pub fn euler_explicit<T: HasProperties>(
     problem: &mut Problem<T>,
     t: f64,
-    x: &mut Vec<DVector<f64>>,
+    x: &mut DVector<f64>,
     h: f64,
-) -> Vec<DVector<f64>> {
+) -> DVector<f64> {
     problem.update(x);
-    let y = problem.setup_equations(&t, x);
+    let y = problem.setup_equations(&t);
     for i in 0..x.len() {
-        for j in 0..x[i].len() {
-            x[i][j] += h * y[i][j]; // loop is faster than DVector product
-        }
+        x[i] += h * y[i]; // loop is faster than DVector product last time I checked
     }
     y
 }
@@ -106,54 +104,45 @@ pub fn euler_explicit<T: HasProperties>(
 pub fn runge_kutta_4<T: HasProperties>(
     problem: &mut Problem<T>,
     t: f64,
-    x: &mut Vec<DVector<f64>>,
+    x: &mut DVector<f64>,
     h: f64,
-) -> Vec<DVector<f64>> {
+) -> DVector<f64> {
     problem.update(x);
-    let k1 = problem.setup_equations(&t, x);
+    let k1 = problem.setup_equations(&t);
     let mut x1 = x.clone();
     for i in 0..x.len() {
-        for j in 0..x[i].len() {
-            x1[i][j] += 0.5 * h * k1[i][j];
-        }
+        x1[i] += 0.5 * h * k1[i];
     }
     problem.update(&x1);
-    let k2 = problem.setup_equations(&(t + 0.5 * h), &x1);
+    let k2 = problem.setup_equations(&(t + 0.5 * h));
     let mut x2 = x.clone();
     for i in 0..x.len() {
-        for j in 0..x[i].len() {
-            x2[i][j] += 0.5 * h * k2[i][j];
-        }
+        x2[i] += 0.5 * h * k2[i];
     }
     problem.update(&x2);
-    let k3 = problem.setup_equations(&(t + 0.5 * h), &x2);
+    let k3 = problem.setup_equations(&(t + 0.5 * h));
     let mut x3 = x.clone();
     for i in 0..x.len() {
-        for j in 0..x[i].len() {
-            x3[i][j] += h * k3[i][j];
-        }
+        x3[i] += h * k3[i];
     }
     problem.update(&x3);
-    let k4 = problem.setup_equations(&(t + h), &x3);
+    let k4 = problem.setup_equations(&(t + h));
     let mut y = x.clone();
     for i in 0..x.len() {
-        for j in 0..x[i].len() {
-            // final derivative
-            y[i][j] = (k1[i][j] + 2. * k2[i][j] + 2. * k3[i][j] + k4[i][j]) / 6.;
-            // final solution
-            x[i][j] += h * y[i][j];
-        }
+        // final derivative
+        y[i] = (k1[i] + 2. * k2[i] + 2. * k3[i] + k4[i]) / 6.;
+        // final solution
+        x[i] += h * y[i];
     }
     y
 }
 
-fn stop_criterial(y: &[DVector<f64>], t: f64) -> bool {
-    if y.iter().any(|x| x.iter().any(|x| x.is_nan())) {
+fn stop_criterial(y: &DVector<f64>, t: f64) -> bool {
+    if y.iter().any(|x| x.is_nan()) {
         println!("NaN found in solution vector");
         return true;
     } else {
-        let residuals = DVector::from_vec(y.iter().flatten().map(|x| x.abs()).collect::<Vec<_>>());
-        if residuals.abs().max() < 0.0000001 {
+        if y.abs().max() < 0.0000001 {
             println!("Steady state reached at t = {} s", t);
             return true;
         }

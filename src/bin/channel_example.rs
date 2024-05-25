@@ -268,7 +268,7 @@ impl Properties {
         dvector![self.mass[i]]
     }
 
-    pub fn update_mass(&mut self, i: usize, mass: &DVector<f64>) {
+    pub fn update_mass(&mut self, i: usize, mass: &[f64]) {
         self.mass[i] = mass[0];
     }
 
@@ -327,8 +327,8 @@ impl Properties {
         ]
     }
 
-    pub fn update_momentum(&mut self, i: usize, momentum: &DVector<f64>) {
-        self.momentum.set_column(i, momentum);
+    pub fn update_momentum(&mut self, i: usize, momentum: &[f64]) {
+        self.momentum.column_mut(i).copy_from_slice(momentum);
     }
 
     pub fn get_impulse(&self, i: usize) -> Vector3<f64> {
@@ -386,16 +386,18 @@ impl Properties {
         dvector![self.energy[i]]
     }
 
-    pub fn update_energy(&mut self, i: usize, energy: &DVector<f64>) {
+    pub fn update_energy(&mut self, i: usize, energy: &[f64]) {
         self.energy[i] = energy[0];
     }
 
     pub fn get_specific_energy(&self, i: usize) -> f64 {
+        // TODO : should be much faster to do this in one go for all cells
         self.p[i] / (self.gamma[i] - 1.)
             + 0.5 * self.rho[i] * self.u.column(i).dot(&self.u.column(i))
     }
 
     fn euler_energy_flux(&self, i: usize) -> Vector3<f64> {
+        // TODO : should be much faster to do this in one go for all cells
         let en = self.get_specific_energy(i);
         return self.u.column(i) * (en + self.p[i]);
     }
