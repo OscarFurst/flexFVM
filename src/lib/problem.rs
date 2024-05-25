@@ -248,8 +248,7 @@ impl<T: HasProperties> Problem<T> {
 
     pub fn get_state(&self) -> Vec<DVector<f64>> {
         // returns the current state of the mesh
-        // TODO: Vec capacity should be calculated correctly for faster computation
-        let mut x: Vec<DVector<f64>> = Vec::with_capacity(self.mesh.n_cells());
+        let mut x: Vec<DVector<f64>> = Vec::with_capacity(self.n_eq());
         for layer in self.equation_containers.iter() {
             for i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {

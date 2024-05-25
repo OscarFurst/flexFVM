@@ -103,7 +103,7 @@ impl HasProperties for Properties {
         let list_of_velocity_magnitude: RowDVector<f64> = self.u.component_mul(&self.u).row_sum();
         self.energy = (self.p.component_div(&self.gamma.add_scalar(-1.))
             + 0.5 * self.rho.component_mul(&list_of_velocity_magnitude))
-        .component_mul(&volume);
+        .component_mul(volume);
     }
 
     fn export(&self) -> Vec<(String, Vec<f64>)> {
@@ -127,7 +127,7 @@ impl HasProperties for Properties {
 }
 
 pub fn push_to_matrix(matrix: &Matrix3xX<f64>, value: Vector3<f64>) -> Matrix3xX<f64> {
-    Matrix3xX::from_vec(vec![matrix.data.as_slice(), value.data.as_slice()].concat())
+    Matrix3xX::from_vec([matrix.data.as_slice(), value.data.as_slice()].concat())
 }
 
 fn properties_generator(properties: &mut Properties, position: &Point3<f64>) {
@@ -161,20 +161,11 @@ fn properties_generator(properties: &mut Properties, position: &Point3<f64>) {
 
 pub fn create_mesh() -> problem::Problem<Properties> {
     let bc1 = BoundaryCondition("periodic".to_string(), dvector![1., 0., 0.]);
-    let bc2 = BoundaryCondition("wall".to_string(), dvector![0.]);
     let bc3 = BoundaryCondition("periodic".to_string(), dvector![-1., 0., 0.]);
     let bc4 = BoundaryCondition("periodic".to_string(), dvector![0., 1., 0.]);
     let bc5 = BoundaryCondition("periodic".to_string(), dvector![0., -1., 0.]);
     let boundary_conditions: [Option<BoundaryCondition>; 6] =
         [Some(bc1), Some(bc4), None, Some(bc3), Some(bc5), None];
-    // let boundary_conditions: [Option<BoundaryCondition>; 6] = [
-    //     Some(bc1),
-    //     Some(bc2.clone()),
-    //     None,
-    //     Some(bc3),
-    //     Some(bc2.clone()),
-    //     None,
-    // ];
     let n_grid = (128, 128, 1);
     let mut block: problem::Problem<Properties> = problem::Problem::new();
     let mass_eq = Equation {
@@ -233,7 +224,7 @@ fn rusanov_scalar(
     );
     let u1 = var(properties, p1);
     let u2 = var(properties, p2);
-    return 0.5 * (f1 + f2).dot(&scaled_normal) - 0.5 * lambda * (u2 - u1);
+    0.5 * (f1 + f2).dot(scaled_normal) - 0.5 * lambda * (u2 - u1)
 }
 
 fn rusanov_vector(
@@ -255,7 +246,7 @@ fn rusanov_vector(
     );
     let u1 = var(properties, p1);
     let u2 = var(properties, p2);
-    return 0.5 * (f1 + f2) * scaled_normal - 0.5 * lambda * (u2 - u1);
+    0.5 * (f1 + f2) * scaled_normal - 0.5 * lambda * (u2 - u1)
 }
 
 ////////////////////////
@@ -277,7 +268,7 @@ impl Properties {
         dvector![self.mass[i]]
     }
 
-    pub fn update_mass<'a>(&'a mut self, i: usize, mass: &DVector<f64>) {
+    pub fn update_mass(&mut self, i: usize, mass: &DVector<f64>) {
         self.mass[i] = mass[0];
     }
 
@@ -307,8 +298,8 @@ pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> DVector
                     &(f.out_normal(i_p) * f.area),
                 );
             }
-            problem::NeighborReturn::Boundary(name, i_f, _, _) => {
-                let f = &problem.mesh.faces[i_f];
+            problem::NeighborReturn::Boundary(name, _i_f, _, _) => {
+                // let f = &problem.mesh.faces[_i_f];
                 match name {
                     "wall" => {
                         // impermeable wall
@@ -336,8 +327,8 @@ impl Properties {
         ]
     }
 
-    pub fn update_momentum<'a>(&'a mut self, i: usize, momentum: &DVector<f64>) {
-        self.momentum.set_column(i, &momentum);
+    pub fn update_momentum(&mut self, i: usize, momentum: &DVector<f64>) {
+        self.momentum.set_column(i, momentum);
     }
 
     pub fn get_impulse(&self, i: usize) -> Vector3<f64> {
@@ -395,7 +386,7 @@ impl Properties {
         dvector![self.energy[i]]
     }
 
-    pub fn update_energy<'a>(&'a mut self, i: usize, energy: &DVector<f64>) {
+    pub fn update_energy(&mut self, i: usize, energy: &DVector<f64>) {
         self.energy[i] = energy[0];
     }
 
@@ -429,8 +420,8 @@ pub fn euler_energy(problem: &problem::Problem<Properties>, i_p: usize) -> DVect
                     &(f.out_normal(i_p) * f.area),
                 );
             }
-            problem::NeighborReturn::Boundary(name, i_f, _, _) => {
-                let f = &problem.mesh.faces[i_f];
+            problem::NeighborReturn::Boundary(name, _i_f, _, _) => {
+                // let f = &problem.mesh.faces[_i_f];
 
                 match name {
                     "wall" => {

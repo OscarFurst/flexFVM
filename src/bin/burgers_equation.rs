@@ -66,7 +66,7 @@ impl HasProperties for Properties {
 }
 
 pub fn push_to_matrix(matrix: &Matrix3xX<f64>, value: Vector3<f64>) -> Matrix3xX<f64> {
-    Matrix3xX::from_vec(vec![matrix.data.as_slice(), value.data.as_slice()].concat())
+    Matrix3xX::from_vec([matrix.data.as_slice(), value.data.as_slice()].concat())
 }
 
 pub fn material(properties: &mut Properties, position: &Point3<f64>) {
@@ -147,6 +147,8 @@ pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> D
             }
             // flux term for a boundary condition
             problem::NeighborReturn::Boundary(name, _, _, _) => match name {
+                // currently only periodic boundary condition is used in this case,
+                // which does not require any action here
                 _ => {
                     panic!("Unknown boundary condition : {}", name);
                 }

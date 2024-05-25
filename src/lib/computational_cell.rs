@@ -1,7 +1,7 @@
 // for now all cells are rectangular parallelepipeds
 use crate::mesh::Mesh;
 use crate::{geometry_utils::*, problem};
-use nalgebra::{DVector, Point3, RowDVector, Vector3};
+use nalgebra::{Point3, RowDVector, Vector3};
 use std::fmt;
 
 ///////////////////////////
@@ -39,7 +39,7 @@ impl CellData {
         self.zone.push(zone);
     }
 
-    pub fn get_cell<'a>(&'a self, i_cell: usize) -> ComputationalCell<'a> {
+    pub fn get_cell(&self, i_cell: usize) -> ComputationalCell {
         ComputationalCell {
             faces: &self.faces[i_cell],
             r: &self.r[i_cell],
@@ -48,7 +48,7 @@ impl CellData {
         }
     }
 
-    pub fn get_cell_mut<'a>(&'a mut self, i_cell: usize) -> ComputationalCellMut<'a> {
+    pub fn get_cell_mut(&mut self, i_cell: usize) -> ComputationalCellMut {
         ComputationalCellMut {
             faces: &self.faces[i_cell],
             r: &mut self.r[i_cell],
@@ -90,7 +90,7 @@ pub trait HasProperties: Default + Clone + fmt::Debug {
     /// Typically, derivatives of the primitive variables are computed here.
     fn compute_derivatives(&mut self, _mesh: &Mesh) {}
     /// export is called when the solution is exported to a file.
-    // TODO : a data type that does not require a copy of the data. maybe an iterator?
+    // I would love to use a data type that does not require a copy of the data, but vtkio requires a Vec \_(ツ)_/
     fn export(&self) -> Vec<(String, Vec<f64>)>;
 }
 
@@ -207,14 +207,13 @@ pub struct Face {
 }
 
 impl Face {
-    /// Creates a new face and initialize its basic geometrical properties.
+    /// Creates a new face from a list of point indices and initialize its basic geometrical properties.
     /// The properties relating to the neighbour need to be initialized later.
     pub fn new(mesh: &Mesh, vertices_indices: &[usize]) -> Self {
         let vertices_coordinates: &[Point3<f64>] = &vertices_indices
             .iter()
             .map(|i_vertex| mesh.vertices[*i_vertex])
             .collect::<Vec<Point3<f64>>>();
-        // TODO: only implemented for rectangle
         // computing the center of the face
         let center: Point3<f64> = polyhedron_center(vertices_coordinates);
         let normal: Vector3<f64> = polygnon_normal(vertices_coordinates);

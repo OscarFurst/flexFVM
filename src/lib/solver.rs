@@ -93,8 +93,8 @@ pub fn euler_explicit<T: HasProperties>(
     x: &mut Vec<DVector<f64>>,
     h: f64,
 ) -> Vec<DVector<f64>> {
-    problem.update(&x);
-    let y = problem.setup_equations(&t, &x);
+    problem.update(x);
+    let y = problem.setup_equations(&t, x);
     for i in 0..x.len() {
         for j in 0..x[i].len() {
             x[i][j] += h * y[i][j]; // loop is faster than DVector product
@@ -109,8 +109,8 @@ pub fn runge_kutta_4<T: HasProperties>(
     x: &mut Vec<DVector<f64>>,
     h: f64,
 ) -> Vec<DVector<f64>> {
-    problem.update(&x);
-    let k1 = problem.setup_equations(&t, &x);
+    problem.update(x);
+    let k1 = problem.setup_equations(&t, x);
     let mut x1 = x.clone();
     for i in 0..x.len() {
         for j in 0..x[i].len() {

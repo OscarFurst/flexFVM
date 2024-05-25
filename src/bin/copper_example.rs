@@ -119,7 +119,7 @@ impl Properties {
         dvector![self.T[i]]
     }
 
-    pub fn update_T<'a>(&'a mut self, i: usize, T: &DVector<f64>) {
+    pub fn update_T(&mut self, i: usize, T: &DVector<f64>) {
         self.T[i] = T[0];
     }
 }
