@@ -34,26 +34,26 @@ pub struct Properties {
     pub lambda: RowDVector<f64>, // W/m/k
 }
 
-impl fmt::Debug for Properties {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.T)
-    }
-}
-
 impl HasProperties for Properties {
+    fn new(size: usize) -> Self {
+        if size == 0 {
+            return Properties {
+                T: RowDVector::from(Vec::new()),
+                rho: RowDVector::from(Vec::new()),
+                cp: RowDVector::from(Vec::new()),
+                lambda: RowDVector::from(Vec::new()),
+            };
+        }
+        Properties {
+            T: RowDVector::from_element(size, 0.),
+            rho: RowDVector::from_element(size, 0.),
+            cp: RowDVector::from_element(size, 0.),
+            lambda: RowDVector::from_element(size, 0.),
+        }
+    }
+
     fn export(&self) -> Vec<(String, Vec<f64>)> {
         vec![("T".to_string(), self.T.data.as_slice().to_vec())]
-    }
-}
-
-impl Default for Properties {
-    fn default() -> Self {
-        Properties {
-            T: RowDVector::from(Vec::new()),
-            rho: RowDVector::from(Vec::new()),
-            cp: RowDVector::from(Vec::new()),
-            lambda: RowDVector::from(Vec::new()),
-        }
     }
 }
 

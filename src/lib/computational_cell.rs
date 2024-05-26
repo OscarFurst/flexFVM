@@ -2,6 +2,7 @@
 use crate::mesh::Mesh;
 use crate::{geometry_utils::*, problem};
 use nalgebra::{Point3, RowDVector, Vector3};
+use nalgebra_sparse::csr::CsrMatrix;
 use std::fmt;
 
 ///////////////////////////
@@ -76,7 +77,10 @@ pub struct ComputationalCellMut<'a> {
     pub zone: &'a mut usize,
 }
 
-pub trait HasProperties: Default + Clone + fmt::Debug {
+pub trait HasProperties: Clone {
+    /// new is called whenever a new set of properties is needed.
+    /// It needs to be able to create an empty set of properties and a set of properties with a given size.
+    fn new(size: usize) -> Self;
     /// update_primitive is called after the new solution variables are computed.
     /// It is meant to update the properties that are directly derived from the solution variables
     fn update_primitive(&mut self, _volume: &RowDVector<f64>) {}
@@ -85,10 +89,17 @@ pub trait HasProperties: Default + Clone + fmt::Debug {
     /// so that densities can be used in the problem initialization while the mass is the actual
     /// variable that is solved for.
     fn update_integral(&mut self, _volume: &RowDVector<f64>) {}
-    /// compute_derivatives is called after update_primitive, before the new right-hand side is computed.
-    /// It is meant to compute the derivatives of the properties that are needed for extrapolation of face values.
-    /// Typically, derivatives of the primitive variables are computed here.
-    fn compute_derivatives(&mut self, _mesh: &Mesh) {}
+    /// interpolate_face_from_cells is called after update_primitive.
+    /// This is optional, as the interpolation can be done directly in the computatino of the derivatives,
+    /// although that will be slower in most cases!
+    /// It assigns to every side of every face the value determined by the selected interpolation scheme.
+    /// Requires to select an interpolation scheme by calling an interpolation initialization function.
+    fn interpolate_face_from_cells(
+        &mut self,
+        _cell_properties: &Self,
+        _interpolation_matrix: &CsrMatrix<f64>,
+    ) {
+    }
     /// export is called when the solution is exported to a file.
     // I would love to use a data type that does not require a copy of the data, but vtkio requires a Vec \_(ツ)_/
     fn export(&self) -> Vec<(String, Vec<f64>)>;

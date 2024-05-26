@@ -4,6 +4,7 @@ use crate::equation_container::EquationContainer;
 use crate::mesh::Mesh;
 use indicatif::ProgressBar;
 use nalgebra::{DVector, Point3, Vector3};
+use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
 use std::error::Error;
 use std::fs::File;
 use std::path::PathBuf;
@@ -19,6 +20,10 @@ pub enum NeighborReturn<'a> {
 pub struct Problem<T: HasProperties> {
     pub mesh: Mesh,
     pub cell_properties: T,
+    pub face_owner_properties: T,
+    pub face_owner_interpolation: Option<CsrMatrix<f64>>,
+    pub face_neighbor_properties: T,
+    pub face_neighbor_interpolation: Option<CsrMatrix<f64>>,
     pub equation_containers: Vec<EquationContainer<T>>,
 }
 
@@ -26,7 +31,11 @@ impl<T: HasProperties> Problem<T> {
     pub fn new() -> Self {
         Problem {
             mesh: Mesh::new(),
-            cell_properties: T::default(),
+            cell_properties: T::new(0),
+            face_owner_properties: T::new(0),
+            face_owner_interpolation: Option::None,
+            face_neighbor_properties: T::new(0),
+            face_neighbor_interpolation: Option::None,
             equation_containers: Vec::new(),
         }
     }
@@ -294,12 +303,70 @@ impl<T: HasProperties> Problem<T> {
         }
         self.cell_properties
             .update_primitive(&self.mesh.cells.volume);
+        if let Some(interpolation) = &self.face_owner_interpolation {
+            self.face_owner_properties
+                .interpolate_face_from_cells(&self.cell_properties, interpolation);
+        }
+        if let Some(interpolation) = &self.face_neighbor_interpolation {
+            self.face_neighbor_properties
+                .interpolate_face_from_cells(&self.cell_properties, interpolation);
+        }
     }
 
     pub fn update_integral(&mut self) {
         // takes the solution and updates every cell with it
         self.cell_properties
             .update_integral(&self.mesh.cells.volume);
+    }
+
+    pub fn initialize_face_properties(&mut self) {
+        // initializes the face properties
+        self.face_owner_properties = T::new(self.mesh.faces.len());
+        self.face_neighbor_properties = T::new(self.mesh.faces.len());
+    }
+
+    /// Prepares the interpolation of the face properties using a constant interpolation scheme.
+    /// A sparse matrix A is created so that X_face = A * X_cell.
+    /// This has to be done only once, before the simulation starts.
+    // TODO : needs its own module
+    #[allow(non_snake_case)]
+    pub fn prepare_constant_interpolation(&mut self) {
+        let mut A_owner = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
+        let mut A_neighbor = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
+        for i_face in 0..self.mesh.faces.len() {
+            let face = &self.mesh.faces[i_face];
+            let owner = face.owner.0;
+            A_owner.push(i_face, owner, 1.0);
+            // TODO : seems like a great place to put Dirichlet boundary conditions
+            match face.neighbor {
+                NeighborType::Internal(neighbor, _) => A_neighbor.push(i_face, neighbor, 1.0),
+                _ => {}
+            };
+        }
+        self.face_owner_interpolation = Some(CsrMatrix::from(&A_owner));
+        self.face_neighbor_interpolation = Some(CsrMatrix::from(&A_neighbor));
+        self.initialize_face_properties();
+    }
+
+    /// Prepares the interpolation of the face properties using a linear interpolation scheme.
+    /// A sparse matrix A is created so that X_face = A * X_cell.
+    /// This has to be done only once, before the simulation starts.
+    #[allow(non_snake_case)]
+    pub fn prepare_linear_interpolation(&mut self) {
+        let mut A = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
+        for i_face in 0..self.mesh.faces.len() {
+            let face = &self.mesh.faces[i_face];
+            let owner = face.owner;
+            let neighbor = match face.neighbor {
+                NeighborType::Internal(neighbor, distance) => (neighbor, distance),
+                _ => (owner.0, owner.1),
+            };
+            A.push(i_face, owner.0, owner.1 / (owner.1 + neighbor.1));
+            A.push(i_face, neighbor.0, neighbor.1 / (owner.1 + neighbor.1));
+        }
+        self.face_owner_interpolation = Some(CsrMatrix::from(&A));
+        self.face_neighbor_interpolation = Some(CsrMatrix::from(&A));
+        self.initialize_face_properties();
     }
 
     /// Returns all neighbors of the specified cell
@@ -463,7 +530,6 @@ impl<T: HasProperties> Default for Problem<T> {
 mod tests {
     use crate::computational_cell::HasProperties;
     use nalgebra::RowDVector;
-    use std::fmt;
 
     #[allow(non_snake_case)]
     #[derive(Clone)]
@@ -476,26 +542,17 @@ mod tests {
         pub lambda: RowDVector<f64>, // W/m/k
     }
 
-    impl fmt::Debug for Properties {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}", self.T)
-        }
-    }
-
     impl HasProperties for Properties {
-        fn export(&self) -> Vec<(String, Vec<f64>)> {
-            vec![("T".to_string(), self.T.data.as_slice().to_vec())]
-        }
-    }
-
-    impl Default for Properties {
-        fn default() -> Self {
+        fn new(_size: usize) -> Self {
             Properties {
                 T: RowDVector::from(Vec::new()),
                 rho: RowDVector::from(Vec::new()),
                 cp: RowDVector::from(Vec::new()),
                 lambda: RowDVector::from(Vec::new()),
             }
+        }
+        fn export(&self) -> Vec<(String, Vec<f64>)> {
+            vec![("T".to_string(), self.T.data.as_slice().to_vec())]
         }
     }
 

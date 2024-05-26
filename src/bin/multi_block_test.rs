@@ -1,6 +1,5 @@
 use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
 use nalgebra::{dvector, DVector, Point3, RowDVector};
-use std::fmt;
 use std::time::Instant;
 
 fn main() {
@@ -42,20 +41,8 @@ pub struct Properties {
     pub lambda: RowDVector<f64>, // W/m/k
 }
 
-impl fmt::Debug for Properties {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.T)
-    }
-}
-
 impl HasProperties for Properties {
-    fn export(&self) -> Vec<(String, Vec<f64>)> {
-        vec![("T".to_string(), self.T.data.as_slice().to_vec())]
-    }
-}
-
-impl Default for Properties {
-    fn default() -> Self {
+    fn new(_size: usize) -> Self {
         Properties {
             T: RowDVector::from(Vec::new()),
             rho: RowDVector::from(Vec::new()),
@@ -63,7 +50,11 @@ impl Default for Properties {
             lambda: RowDVector::from(Vec::new()),
         }
     }
+    fn export(&self) -> Vec<(String, Vec<f64>)> {
+        vec![("T".to_string(), self.T.data.as_slice().to_vec())]
+    }
 }
+
 ///////////////////
 /// Copper data ///
 ///////////////////

@@ -1,6 +1,5 @@
 use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
 use nalgebra::{dvector, DVector, Matrix3xX, Point3, RowDVector, Vector3};
-use std::fmt;
 
 fn main() {
     let initial_mesh = create_mesh();
@@ -31,22 +30,19 @@ pub struct Properties {
     pub nu: RowDVector<f64>, // kg/m3
 }
 
-impl fmt::Debug for Properties {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.u)
-    }
-}
-
-impl Default for Properties {
-    fn default() -> Self {
+impl HasProperties for Properties {
+    fn new(size: usize) -> Self {
+        if size == 0 {
+            return Properties {
+                u: Matrix3xX::from_vec(vec![]),
+                nu: RowDVector::from_vec(vec![]),
+            };
+        }
         Properties {
-            u: Matrix3xX::from_vec(vec![]),
-            nu: RowDVector::from_vec(vec![]),
+            u: Matrix3xX::from_element(size, 0.),
+            nu: RowDVector::from_element(size, 0.),
         }
     }
-}
-
-impl HasProperties for Properties {
     fn export(&self) -> Vec<(String, Vec<f64>)> {
         vec![
             (
