@@ -46,9 +46,10 @@ pub struct Properties {
     pub momentum: Matrix3xX<f64>, // kg/m/s
     pub energy: RowDVector<f64>,  // J
     // primitive properties
-    pub rho: RowDVector<f64>, // kg/m3
-    pub u: Matrix3xX<f64>,    // m/s
-    pub p: RowDVector<f64>,   // Pa
+    pub rho: RowDVector<f64>,             // kg/m3
+    pub u: Matrix3xX<f64>,                // m/s
+    pub p: RowDVector<f64>,               // Pa
+    pub specific_energy: RowDVector<f64>, // J/kg
     // material properties
     pub gamma: RowDVector<f64>, // adiabatic index
 }
@@ -63,6 +64,7 @@ impl HasProperties for Properties {
                 rho: RowDVector::from(Vec::new()),
                 u: Matrix3xX::from_vec(Vec::new()),
                 p: RowDVector::from(Vec::new()),
+                specific_energy: RowDVector::from(Vec::new()),
                 gamma: RowDVector::from(Vec::new()),
             };
         }
@@ -73,6 +75,7 @@ impl HasProperties for Properties {
             rho: RowDVector::from_element(size, 0.),
             u: Matrix3xX::from_element(size, 0.),
             p: RowDVector::from_element(size, 0.),
+            specific_energy: RowDVector::from_element(size, 0.),
             gamma: RowDVector::from_element(size, 0.),
         }
     }
@@ -94,6 +97,8 @@ impl HasProperties for Properties {
         self.p = (self.energy.component_div(volume)
             - 0.5 * self.rho.component_mul(&list_of_velocity_magnitude))
         .component_mul(&self.gamma.add_scalar(-1.));
+        self.specific_energy = self.p.component_div(&self.gamma.add_scalar(-1.))
+            + 0.5 * self.rho.component_mul(&list_of_velocity_magnitude);
     }
 
     fn update_integral(&mut self, volume: &RowDVector<f64>) {
@@ -120,6 +125,8 @@ impl HasProperties for Properties {
         self.rho = (interpolation_matrix * &cell_properties.rho.transpose()).transpose();
         self.u = (interpolation_matrix * &cell_properties.u.transpose()).transpose();
         self.p = (interpolation_matrix * &cell_properties.p.transpose()).transpose();
+        self.specific_energy =
+            (interpolation_matrix * &cell_properties.specific_energy.transpose()).transpose();
         self.gamma = (interpolation_matrix * &cell_properties.gamma.transpose()).transpose();
     }
 
@@ -441,15 +448,11 @@ impl Properties {
     }
 
     pub fn get_specific_energy(&self, i: usize) -> f64 {
-        // TODO : should be much faster to do this in one go for all cells
-        self.p[i] / (self.gamma[i] - 1.)
-            + 0.5 * self.rho[i] * self.u.column(i).dot(&self.u.column(i))
+        self.specific_energy[i]
     }
 
     fn euler_energy_flux(&self, i: usize) -> Vector3<f64> {
-        // TODO : should be much faster to do this in one go for all cells
-        let en = self.get_specific_energy(i);
-        return self.u.column(i) * (en + self.p[i]);
+        return self.u.column(i) * (self.specific_energy[i] + self.p[i]);
     }
 }
 
