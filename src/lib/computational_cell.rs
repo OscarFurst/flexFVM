@@ -243,6 +243,17 @@ impl Face {
         self.owner.0 == i_cell
     }
 
+    pub fn get_other_cell(&self, i_cell: usize) -> Option<usize> {
+        if !self.is_owner(i_cell) {
+            // no need for checks, face always has an owner
+            return Some(self.owner.0);
+        }
+        match self.neighbor {
+            NeighborType::Internal(i_cell, _) => Some(i_cell),
+            _ => None,
+        }
+    }
+
     pub fn out_normal(&self, i_cell: usize) -> Vector3<f64> {
         if self.is_owner(i_cell) {
             self.normal

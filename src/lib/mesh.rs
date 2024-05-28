@@ -1,6 +1,7 @@
 use crate::computational_cell::{CellData, Face, NeighborType};
 use crate::geometry_utils::{polyhedron_center, polyhedron_volume};
 use nalgebra::{Point3, Vector3};
+use std::collections::HashSet;
 
 /// The mesh owns all geometrical features:
 /// - vertices: points in space at the corners of computational cells
@@ -211,6 +212,14 @@ impl Mesh {
                     .collect::<Vec<Point3<f64>>>()
             })
             .collect::<Vec<Vec<Point3<f64>>>>()
+    }
+
+    /// returns the indices of the vertices of the cell with no duplicates
+    pub fn cell_vertices(&self, i_cell: usize) -> HashSet<usize> {
+        self.cells.faces[i_cell]
+            .iter()
+            .flat_map(|i_face| self.faces[*i_face].vertices.clone())
+            .collect::<HashSet<usize>>()
     }
 }
 

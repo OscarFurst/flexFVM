@@ -113,3 +113,59 @@ fn unsigned_tetrahedron_volume(
 ) -> f64 {
     signed_tetrahedron_volume(a, b, c, d).abs()
 }
+
+pub fn line_plane_intersection(
+    line_point_1: &Point3<f64>,
+    line_point_2: &Point3<f64>,
+    plane_point: &Point3<f64>,
+    plane_normal: &Vector3<f64>,
+) -> Option<Point3<f64>> {
+    let line_vector = line_point_2 - line_point_1;
+    let projection_vector = plane_point - line_point_1;
+    let dot_product = plane_normal.dot(&line_vector);
+    if dot_product.abs() < f64::EPSILON {
+        // CAREFUL: this means the line is parallel to the plane, but it could still be inside the plane!
+        return None;
+    }
+    let t = plane_normal.dot(&projection_vector) / dot_product;
+    Some(line_point_1 + t * line_vector)
+}
+
+/// Computes the barycentric coordinates of a point in a triangle.
+pub fn barycentric_coordinates(
+    point: &Point3<f64>,
+    a: &Point3<f64>,
+    b: &Point3<f64>,
+    c: &Point3<f64>,
+) -> (f64, f64, f64) {
+    let v0 = b - a;
+    let v1 = c - a;
+    let v2 = point - a;
+    let d00 = v0.dot(&v0);
+    let d01 = v0.dot(&v1);
+    let d11 = v1.dot(&v1);
+    let d20 = v2.dot(&v0);
+    let d21 = v2.dot(&v1);
+    let denom = d00 * d11 - d01 * d01;
+    let v = (d11 * d20 - d01 * d21) / denom;
+    let w = (d00 * d21 - d01 * d20) / denom;
+    let u = 1. - v - w;
+    (u, v, w)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_barycentric_coordinates() {
+        // values from https://blogs.sas.com/content/iml/2023/06/21/barycentric-coordinates.html
+        let a = Point3::new(0.8, -0.2, 0.);
+        let b = Point3::new(0.3, 1., 0.);
+        let c = Point3::new(0., 0., 0.);
+        let point = Point3::new(0.4, 0.6, 0.);
+        let (u, v, w) = barycentric_coordinates(&point, &a, &b, &c);
+        assert!((u - 0.255814).abs() < 1e-6);
+        assert!((v - 0.6511628).abs() < 1e-6);
+        assert!((w - 0.0930223).abs() < 1e-6);
+    }
+}

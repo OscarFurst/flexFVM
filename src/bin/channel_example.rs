@@ -121,7 +121,7 @@ impl HasProperties for Properties {
     ) {
         // interpolate only the primitive properties, as the integral properties depend on the cell volume!
         // TODO : this is probably terribly inefficient because of the transpose, which are only needed
-        // because left multiplication is not implemented for this case apparently!
+        // because left multiplication is not implemented in nalgebra-sparse!
         self.rho = (interpolation_matrix * &cell_properties.rho.transpose()).transpose();
         self.u = (interpolation_matrix * &cell_properties.u.transpose()).transpose();
         self.p = (interpolation_matrix * &cell_properties.p.transpose()).transpose();

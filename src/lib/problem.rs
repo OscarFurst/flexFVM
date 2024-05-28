@@ -1,8 +1,10 @@
 use crate::computational_cell::{HasProperties, NeighborType};
 use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
+use crate::geometry_utils::{barycentric_coordinates, line_plane_intersection};
 use crate::mesh::Mesh;
 use indicatif::ProgressBar;
+use itertools::Itertools;
 use nalgebra::{DVector, Point3, Vector3};
 use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
 use std::error::Error;
@@ -367,6 +369,180 @@ impl<T: HasProperties> Problem<T> {
         self.face_owner_interpolation = Some(CsrMatrix::from(&A));
         self.face_neighbor_interpolation = Some(CsrMatrix::from(&A));
         self.initialize_face_properties();
+    }
+
+    /// Prepares the interpolation of the face properties using a second order MUSCL interpolation scheme.
+    /// A sparse matrix A is created so that X_face = A * X_cell.
+    /// This has to be done only once, before the simulation starts.
+    /// Method is from the following paper :
+    /// Clément Le Touze, Angelo Murrone, Herve Guillard. Multislope MUSCL method for general unstructured
+    /// meshes. Journal of Computational Physics, 2014, pp.44. 10.1016/j.jcp.2014.12.032 . hal-00939475v3
+    #[allow(non_snake_case)]
+    pub fn prepare_MUSCL_interpolation(&mut self) {
+        let mut A_owner = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
+        let mut A_neighbor = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
+        for i_p in 0..self.mesh.cells.r.len() {
+            // first we look for all the cells sharing at least one vertex with the cell i_cell
+            // TODO : this does not account for periodic boundary conditions in which the cells share neither vertices nor faces!!!
+            let p_vertices = self.mesh.cell_vertices(i_p);
+            let mut neighbors = Vec::new();
+            for i_n in 0..self.mesh.cells.r.len() {
+                if i_n == i_p {
+                    continue;
+                }
+                if self
+                    .mesh
+                    .cell_vertices(i_n)
+                    .iter()
+                    .any(|i| p_vertices.contains(i))
+                {
+                    neighbors.push(i_n);
+                    continue;
+                }
+            }
+            // at this point we have a list of neighbors.
+            for &i_face in self.mesh.cells.faces[i_p].iter() {
+                let face = &self.mesh.faces[i_face];
+                // now for each face of the cell, we want to find two points (forward and backward) so that we can compute a slope
+                // the points are interpolated from a list of 3 cell centers and barycentric coordinates
+                let mut point_forward = None;
+                let mut point_backward = None;
+                // vector pointing from the owner center to the face center
+                let BiMij = face.center - self.mesh.cells.r[i_p];
+                // now we sort the list of neighbors in decreasing order of the value cos(BkBi, BiMij)
+                neighbors.sort_by(|&i, &j| {
+                    let BkMij = self.mesh.cells.r[i] - self.mesh.cells.r[i_p];
+                    let cos_i = BiMij.dot(&BkMij) / (BiMij.norm() * BkMij.norm());
+                    let BkMij = self.mesh.cells.r[j] - self.mesh.cells.r[i_p];
+                    let cos_j = BiMij.dot(&BkMij) / (BiMij.norm() * BkMij.norm());
+                    cos_j.partial_cmp(&cos_i).unwrap()
+                });
+                // TODO : the following belongs in a function that is called twice with neighbors sorted by a different criteria
+                // in this sorted list, the first elements are the most backward neighbors, and the last elements are the most forward neighbors
+                // find the number of elemets for which cos(BkBi, BiMij) is positive
+                let n_back = neighbors
+                    .iter()
+                    .take_while(|&&i| {
+                        let BkMij = self.mesh.cells.r[i] - self.mesh.cells.r[i_p];
+                        BiMij.dot(&BkMij) > 0.0
+                    })
+                    .count();
+                if n_back >= 3 {
+                    // we try combinations of 3 neighbors sorted after the sum of their indices
+                    for list in neighbors
+                        .iter()
+                        .enumerate()
+                        .combinations(3)
+                        .sorted_by(|a, b| {
+                            Ord::cmp(
+                                &a.iter().map(|a| a.0).sum::<usize>(),
+                                &b.iter().map(|b| b.0).sum::<usize>(),
+                            )
+                        })
+                    {
+                        let B1 = self.mesh.cells.r[*list[0].1];
+                        let B2 = self.mesh.cells.r[*list[1].1];
+                        let B3 = self.mesh.cells.r[*list[2].1];
+                        let plane_normal = (B2 - B1).cross(&(B3 - B1));
+                        // compute the intersection of BiMij with the plane defined by the three points
+                        if let Some(H) = line_plane_intersection(
+                            &face.center,
+                            &self.mesh.cells.r[i_p],
+                            &B1,
+                            &plane_normal,
+                        ) {
+                            // we compute the barycentric coordinates of H in the triangle B1B2B3
+                            let (alpha, beta, gamma) = barycentric_coordinates(&B1, &B2, &B3, &H);
+                            // check if the point is in the triangle
+                            if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
+                                // we have found the point H, now we can interpolate the properties of the point
+                                point_backward = Some([
+                                    (*list[0].1, alpha),
+                                    (*list[1].1, beta),
+                                    (*list[2].1, gamma),
+                                ]);
+                                break;
+                            }
+                        }
+                    }
+                }
+                // find the number of elemets for which cos(BkBi, BiMij) is positive
+                neighbors.reverse();
+                let n_forward = neighbors.len() - n_back;
+                if n_forward >= 3 {
+                    // we try combinations of 3 neighbors sorted after the sum of their indices
+                    for list in neighbors
+                        .iter()
+                        .enumerate()
+                        .combinations(3)
+                        .sorted_by(|a, b| {
+                            Ord::cmp(
+                                &a.iter().map(|a| a.0).sum::<usize>(),
+                                &b.iter().map(|b| b.0).sum::<usize>(),
+                            )
+                        })
+                    {
+                        let B1 = self.mesh.cells.r[*list[0].1];
+                        let B2 = self.mesh.cells.r[*list[1].1];
+                        let B3 = self.mesh.cells.r[*list[2].1];
+                        let plane_normal = (B2 - B1).cross(&(B3 - B1));
+                        // compute the intersection of BiMij with the plane defined by the three points
+                        if let Some(H) = line_plane_intersection(
+                            &face.center,
+                            &self.mesh.cells.r[i_p],
+                            &B1,
+                            &plane_normal,
+                        ) {
+                            // we compute the barycentric coordinates of H in the triangle B1B2B3
+                            let (alpha, beta, gamma) = barycentric_coordinates(&B1, &B2, &B3, &H);
+                            // check if the point is in the triangle
+                            if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
+                                // we have found the point H, now we can interpolate the properties of the point
+                                point_forward = Some([
+                                    (*list[0].1, alpha),
+                                    (*list[1].1, beta),
+                                    (*list[2].1, gamma),
+                                ]);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if let (
+                    Some([(F1, Falpha), (F2, Fbeta), (F3, Fgamma)]),
+                    Some([(B1, Balpha), (B2, Bbeta), (B3, Bgamma)]),
+                ) = (point_forward, point_backward)
+                {
+                    // reconstruct the position of the forward and backward points
+                    let F = Point3::origin()
+                        + Falpha * (self.mesh.cells.r[F1] - Point3::origin())
+                        + Fbeta * (self.mesh.cells.r[F2] - Point3::origin())
+                        + Fgamma * (self.mesh.cells.r[F3] - Point3::origin());
+                    let B = Point3::origin()
+                        + Balpha * (self.mesh.cells.r[B1] - Point3::origin())
+                        + Bbeta * (self.mesh.cells.r[B2] - Point3::origin())
+                        + Bgamma * (self.mesh.cells.r[B3] - Point3::origin());
+                    // get the geometrical data needed for the interpolation
+                    let distance = (F - B).norm();
+                    let to_face = (face.center - self.mesh.cells.r[i_p]).norm();
+                    // check if we are setting the "owner" side of the face or the "neighbor" side.
+                    let matrix = if face.owner.0 == i_p {
+                        &mut A_owner
+                    } else {
+                        &mut A_neighbor
+                    };
+                    // the value at the face is the value at the center times the slope times to_face.
+                    // the slope is the difference between the forward and backward values divided by the distance.
+                    matrix.push(i_face, i_p, 1.0);
+                    matrix.push(i_face, F1, to_face * Falpha / distance);
+                    matrix.push(i_face, F2, to_face * Fbeta / distance);
+                    matrix.push(i_face, F3, to_face * Fgamma / distance);
+                    matrix.push(i_face, B1, -to_face * Balpha / distance);
+                    matrix.push(i_face, B2, -to_face * Bbeta / distance);
+                    matrix.push(i_face, B3, -to_face * Bgamma / distance);
+                }
+            }
+        }
     }
 
     /// Returns all neighbors of the specified cell
