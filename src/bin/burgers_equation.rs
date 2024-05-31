@@ -83,7 +83,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let heat_diffusion_equations = Equation {
         get: Properties::get_u,
         lhs: Properties::update_u,
-        rhs: burgers_equation,
+        source: burgers_equation,
         dimension: 3,
     };
     // define the boundary conditions

@@ -114,6 +114,12 @@ impl<T: HasProperties> Problem<T> {
         // loop that creates one cell at a time
         println!("🔗 Meshing ...");
         let pb = ProgressBar::new((nx) as u64);
+        pb.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                .unwrap()
+                .progress_chars("##-"),
+        );
         let mut zone_cell_indices = Vec::new();
         for i in 0..nx {
             pb.inc(1);
@@ -274,13 +280,48 @@ impl<T: HasProperties> Problem<T> {
     }
 
     pub fn setup_equations(&self, _t: &f64) -> DVector<f64> {
+        // TODO : disable the "sourface flux equations" completely if they are all None so that it's faster
+        let mut face_fluxes = Vec::with_capacity(self.mesh.faces.len());
+        for (i, face) in self.mesh.faces.iter().enumerate() {
+            let mut single_face_fluxes = Vec::with_capacity(
+                self.equation_containers[face.get_zone(self)]
+                    .equations
+                    .len(),
+            );
+            for eq in self.equation_containers[face.get_zone(self)]
+                .equations
+                .iter()
+            {
+                if let Some(eqn) = eq.flux {
+                    single_face_fluxes.push((eqn)(self, i));
+                }
+            }
+            face_fluxes.push(single_face_fluxes);
+        }
         let mut y: DVector<f64> = DVector::zeros(self.n_eq());
         let mut i = 0;
         for layer in self.equation_containers.iter() {
-            for i_cell in layer.cell_indices.iter() {
-                for eq in layer.equations.iter() {
-                    y.rows_mut(i, eq.dimension)
-                        .copy_from(&(eq.rhs)(self, *i_cell));
+            for &i_cell in layer.cell_indices.iter() {
+                for (i_eq, eq) in layer.equations.iter().enumerate() {
+                    let mut row = y.rows_mut(i, eq.dimension);
+                    if let Some(eqn) = eq.source {
+                        row += &(eqn)(self, i_cell);
+                    }
+                    if matches!(eq.flux, Some(_)) {
+                        // obviously a function was defined for surface fluxes
+                        let from_faces = self.mesh.cells.faces[i_cell]
+                            .iter()
+                            .map(|&i_face| {
+                                &face_fluxes[i_face][i_eq]
+                                    * if self.mesh.faces[i_face].owner.0 == i_cell {
+                                        1.0
+                                    } else {
+                                        -1.0
+                                    }
+                            })
+                            .sum::<DVector<f64>>();
+                        row += from_faces;
+                    }
                     i += eq.dimension;
                 }
             }
@@ -379,9 +420,25 @@ impl<T: HasProperties> Problem<T> {
     /// meshes. Journal of Computational Physics, 2014, pp.44. 10.1016/j.jcp.2014.12.032 . hal-00939475v3
     #[allow(non_snake_case)]
     pub fn prepare_MUSCL_interpolation(&mut self) {
+        // TODO : this function is incredibly slow and needs to be optimized
         let mut A_owner = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
         let mut A_neighbor = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
+        // Allocate enough space. This is a bit more than required due to boundaries which take 1 entry instead of 7,
+        // but the matrix is deallocated at the end of the function anyway.
+        A_owner.reserve(self.mesh.faces.len() * 7);
+        A_neighbor.reserve(self.mesh.faces.len() * 7);
+        // make a nice progress bar
+        println!("💪 Preparing MUSCL face-values interpolation ...");
+        let pb = ProgressBar::new(self.mesh.cells.r.len() as u64);
+        pb.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                .unwrap()
+                .progress_chars("##-"),
+        );
         for i_p in 0..self.mesh.cells.r.len() {
+            // update progress bar
+            pb.inc(1);
             // first we look for all the cells sharing at least one vertex with the cell i_cell
             // TODO : this does not account for periodic boundary conditions in which the cells share neither vertices nor faces!!!
             let p_vertices = self.mesh.cell_vertices(i_p);
@@ -508,6 +565,12 @@ impl<T: HasProperties> Problem<T> {
                         }
                     }
                 }
+                // check if we are setting the "owner" side of the face or the "neighbor" side.
+                let matrix = if face.owner.0 == i_p {
+                    &mut A_owner
+                } else {
+                    &mut A_neighbor
+                };
                 if let (
                     Some([(F1, Falpha), (F2, Fbeta), (F3, Fgamma)]),
                     Some([(B1, Balpha), (B2, Bbeta), (B3, Bgamma)]),
@@ -525,12 +588,6 @@ impl<T: HasProperties> Problem<T> {
                     // get the geometrical data needed for the interpolation
                     let distance = (F - B).norm();
                     let to_face = (face.center - self.mesh.cells.r[i_p]).norm();
-                    // check if we are setting the "owner" side of the face or the "neighbor" side.
-                    let matrix = if face.owner.0 == i_p {
-                        &mut A_owner
-                    } else {
-                        &mut A_neighbor
-                    };
                     // the value at the face is the value at the center times the slope times to_face.
                     // the slope is the difference between the forward and backward values divided by the distance.
                     matrix.push(i_face, i_p, 1.0);
@@ -540,9 +597,32 @@ impl<T: HasProperties> Problem<T> {
                     matrix.push(i_face, B1, -to_face * Balpha / distance);
                     matrix.push(i_face, B2, -to_face * Bbeta / distance);
                     matrix.push(i_face, B3, -to_face * Bgamma / distance);
+                } else {
+                    // first order interpolation
+                    matrix.push(i_face, i_p, 1.0);
                 }
             }
         }
+        pb.finish();
+        // TODO : use a specialized enum instead of an Option
+        self.face_owner_interpolation = Some(CsrMatrix::from(&A_owner));
+        self.face_neighbor_interpolation = Some(CsrMatrix::from(&A_neighbor));
+        // TODO : this is a workaround beacuse I don't want to implement periodic BC correctly yet
+        for i_face in 0..self.mesh.faces.len() {
+            let face = &self.mesh.faces[i_face];
+            if let NeighborType::Internal(i_n, _) = face.neighbor {
+                if let Some(neighbor_matrix) = &mut self.face_neighbor_interpolation {
+                    if neighbor_matrix.row(i_face).nnz() == 0 {
+                        // this side of the face is currently not interpolated despite connecting to a neighbor!
+                        // we perform a first order interpolation from the owner
+                        let owner = face.owner.0;
+                        A_neighbor.push(i_face, owner, 1.0);
+                    }
+                }
+            }
+        }
+        self.face_neighbor_interpolation = Some(CsrMatrix::from(&A_neighbor));
+        self.initialize_face_properties();
     }
 
     /// Returns all neighbors of the specified cell
@@ -577,6 +657,27 @@ impl<T: HasProperties> Problem<T> {
                 _ => NeighborReturn::Nil,
             })
             .collect()
+    }
+
+    /// Retruns the "neighbor" side of a face.
+    /// A neighbor can be :
+    /// - an internal cell (index, distance between centers)
+    /// - a boundary condition (name, some values)
+    /// - Nil (no neighbor, should only be encountered in 2D or 1D meshes)
+    pub fn neighbor(&self, i_face: usize) -> NeighborReturn {
+        match self.mesh.faces[i_face].neighbor {
+            NeighborType::Internal(_, n_distance) => {
+                let (i, o_distance) = self.mesh.faces[i_face].owner;
+                NeighborReturn::Internal(i, i_face, o_distance + n_distance)
+            }
+            NeighborType::Boundary(id) => {
+                let BoundaryCondition(name, values) = &self.equation_containers
+                    [self.mesh.faces[i_face].get_zone(self)]
+                .boundary_conditions[id];
+                NeighborReturn::Boundary(name, i_face, self.mesh.faces[i_face].owner.1, values)
+            }
+            _ => NeighborReturn::Nil,
+        }
     }
 
     /// Exports the mesh to the VTK format.

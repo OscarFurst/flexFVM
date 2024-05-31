@@ -1,4 +1,4 @@
-use flex_fvm::computational_cell::HasProperties;
+use flex_fvm::computational_cell::{HasProperties, NeighborType};
 use flex_fvm::problem;
 use flex_fvm::{
     equation::{BoundaryCondition, Equation},
@@ -195,19 +195,22 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let mass_eq = Equation {
         get: Properties::get_mass,
         lhs: Properties::update_mass,
-        rhs: euler_mass,
+        source: None,
+        flux: Some(euler_mass),
         dimension: 1,
     };
     let impulse_eq = Equation {
         get: Properties::get_momentum,
         lhs: Properties::update_momentum,
-        rhs: euler_impulse,
+        source: None,
+        flux: Some(euler_impulse),
         dimension: 3,
     };
     let energy_eq = Equation {
         get: Properties::get_energy,
         lhs: Properties::update_energy,
-        rhs: euler_energy,
+        source: None,
+        flux: Some(euler_energy),
         dimension: 1,
     };
     block.add_zone(
@@ -222,7 +225,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     block
         .cell_properties
         .update_integral(&block.mesh.cells.volume);
-    block.prepare_constant_interpolation();
+    block.prepare_MUSCL_interpolation();
     block
 }
 
@@ -316,48 +319,34 @@ impl Properties {
     }
 }
 
-pub fn euler_mass(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
+pub fn euler_mass(problem: &problem::Problem<Properties>, i_f: usize) -> DVector<f64> {
     // mass conservation equation
     // d(rho)/dt + div(rho * u) = 0
     let mut convective_flux = 0.;
-    for neighbor in problem.neighbors(i_p) {
-        match neighbor {
-            problem::NeighborReturn::Internal(_i_n, i_f, _) => {
-                let f = &problem.mesh.faces[i_f];
-                if f.owner.0 == i_p {
-                    convective_flux -= rusanov_scalar(
-                        &problem.face_owner_properties,
-                        &problem.face_neighbor_properties,
-                        Properties::euler_mass_flux,
-                        Properties::get_rho,
-                        i_f,
-                        &(f.out_normal(i_p) * f.area),
-                    );
-                } else {
-                    convective_flux -= rusanov_scalar(
-                        &problem.face_neighbor_properties,
-                        &problem.face_owner_properties,
-                        Properties::euler_mass_flux,
-                        Properties::get_rho,
-                        i_f,
-                        &(f.out_normal(i_p) * f.area),
-                    );
+    let f = &problem.mesh.faces[i_f];
+    match problem.neighbor(i_f) {
+        problem::NeighborReturn::Internal(_i_n, _i_f, _d) => {
+            convective_flux -= rusanov_scalar(
+                &problem.face_owner_properties,
+                &problem.face_neighbor_properties,
+                Properties::euler_mass_flux,
+                Properties::get_rho,
+                i_f,
+                &(f.normal * f.area),
+            );
+        }
+        problem::NeighborReturn::Boundary(name, _i_f, _d, _val) => {
+            match name {
+                "wall" => {
+                    // impermeable wall, nothing to do
+                }
+                _ => {
+                    panic!("Unknown boundary condition : {}", name);
                 }
             }
-            problem::NeighborReturn::Boundary(name, _i_f, _, _) => {
-                // let f = &problem.mesh.faces[_i_f];
-                match name {
-                    "wall" => {
-                        // impermeable wall
-                    }
-                    _ => {
-                        panic!("Unknown boundary condition : {}", name);
-                    }
-                }
-            }
-            problem::NeighborReturn::Nil => {
-                // nothing to do
-            }
+        }
+        problem::NeighborReturn::Nil => {
+            // nothing to do
         }
     }
     dvector![convective_flux]
@@ -387,52 +376,37 @@ impl Properties {
     }
 }
 
-pub fn euler_impulse(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
+pub fn euler_impulse(problem: &problem::Problem<Properties>, i_f: usize) -> DVector<f64> {
     // momentum conservation equation
     // d(rho*u)/dt + div(1/rho * rho*u x rho*u + p * I) = 0
     let mut convective_flux = dvector![0., 0., 0.];
-
-    for neighbor in problem.neighbors(i_p) {
-        match neighbor {
-            problem::NeighborReturn::Internal(_i_n, i_f, _) => {
-                let f = &problem.mesh.faces[i_f];
-                if f.owner.0 == i_p {
-                    convective_flux -= rusanov_vector(
-                        &problem.face_owner_properties,
-                        &problem.face_neighbor_properties,
-                        Properties::euler_impulse_flux,
-                        Properties::get_impulse,
-                        i_f,
-                        &(f.out_normal(i_p) * f.area),
-                    );
-                } else {
-                    convective_flux -= rusanov_vector(
-                        &problem.face_neighbor_properties,
-                        &problem.face_owner_properties,
-                        Properties::euler_impulse_flux,
-                        Properties::get_impulse,
-                        i_f,
-                        &(f.out_normal(i_p) * f.area),
-                    );
+    let f = &problem.mesh.faces[i_f];
+    match problem.neighbor(i_f) {
+        problem::NeighborReturn::Internal(_i_n, i_f, _) => {
+            convective_flux -= rusanov_vector(
+                &problem.face_owner_properties,
+                &problem.face_neighbor_properties,
+                Properties::euler_impulse_flux,
+                Properties::get_impulse,
+                i_f,
+                &(f.normal * f.area),
+            );
+        }
+        problem::NeighborReturn::Boundary(name, i_f, _, _) => {
+            match name {
+                "wall" => {
+                    convective_flux -= (problem.face_owner_properties.p[i_f] * Matrix3::identity())
+                        * f.normal
+                        * f.area;
+                    // impermeable wall
+                }
+                _ => {
+                    panic!("Unknown boundary condition : {}", name);
                 }
             }
-            problem::NeighborReturn::Boundary(name, i_f, _, _) => {
-                let f = &problem.mesh.faces[i_f];
-                match name {
-                    "wall" => {
-                        convective_flux -= (problem.cell_properties.p[i_p] * Matrix3::identity())
-                            * f.out_normal(i_p)
-                            * f.area;
-                        // impermeable wall
-                    }
-                    _ => {
-                        panic!("Unknown boundary condition : {}", name);
-                    }
-                }
-            }
-            problem::NeighborReturn::Nil => {
-                // nothing to do
-            }
+        }
+        problem::NeighborReturn::Nil => {
+            // nothing to do
         }
     }
     convective_flux
@@ -457,50 +431,35 @@ impl Properties {
 }
 
 #[allow(non_snake_case)]
-pub fn euler_energy(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
+pub fn euler_energy(problem: &problem::Problem<Properties>, i_f: usize) -> DVector<f64> {
     // energy conservation equation
     // d(E) + div(u * (E + p)) = 0
     let mut convective_flux = 0.;
 
-    for neighbors in problem.neighbors(i_p) {
-        match neighbors {
-            problem::NeighborReturn::Internal(_i_n, i_f, _) => {
-                let f = &problem.mesh.faces[i_f];
-                if f.owner.0 == i_p {
-                    convective_flux -= rusanov_scalar(
-                        &problem.face_owner_properties,
-                        &problem.face_neighbor_properties,
-                        Properties::euler_energy_flux,
-                        Properties::get_specific_energy,
-                        i_f,
-                        &(f.out_normal(i_p) * f.area),
-                    );
-                } else {
-                    convective_flux -= rusanov_scalar(
-                        &problem.face_neighbor_properties,
-                        &problem.face_owner_properties,
-                        Properties::euler_energy_flux,
-                        Properties::get_specific_energy,
-                        i_f,
-                        &(f.out_normal(i_p) * f.area),
-                    );
+    let f = &problem.mesh.faces[i_f];
+    match problem.neighbor(i_f) {
+        problem::NeighborReturn::Internal(_i_n, i_f, _) => {
+            convective_flux -= rusanov_scalar(
+                &problem.face_owner_properties,
+                &problem.face_neighbor_properties,
+                Properties::euler_energy_flux,
+                Properties::get_specific_energy,
+                i_f,
+                &(f.normal * f.area),
+            );
+        }
+        problem::NeighborReturn::Boundary(name, _i_f, _, _) => {
+            match name {
+                "wall" => {
+                    // impermeable wall, we assume it is also adiabatic
+                }
+                _ => {
+                    panic!("Unknown boundary condition : {}", name);
                 }
             }
-            problem::NeighborReturn::Boundary(name, _i_f, _, _) => {
-                // let f = &problem.mesh.faces[_i_f];
-
-                match name {
-                    "wall" => {
-                        // impermeable wall, we assume it is also adiabatic
-                    }
-                    _ => {
-                        panic!("Unknown boundary condition : {}", name);
-                    }
-                }
-            }
-            problem::NeighborReturn::Nil => {
-                // nothing to do
-            }
+        }
+        problem::NeighborReturn::Nil => {
+            // nothing to do
         }
     }
     dvector![convective_flux]

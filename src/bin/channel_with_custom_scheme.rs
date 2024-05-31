@@ -173,19 +173,19 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let mass_eq = Equation {
         get: Properties::get_mass,
         lhs: Properties::update_mass,
-        rhs: euler_mass,
+        source: euler_mass,
         dimension: 1,
     };
     let impulse_eq = Equation {
         get: Properties::get_momentum,
         lhs: Properties::update_momentum,
-        rhs: euler_impulse,
+        source: euler_impulse,
         dimension: 3,
     };
     let energy_eq = Equation {
         get: Properties::get_energy,
         lhs: Properties::update_energy,
-        rhs: euler_energy,
+        source: euler_energy,
         dimension: 1,
     };
     block.add_zone(

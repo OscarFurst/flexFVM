@@ -74,7 +74,7 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let heat_diffusion_equations = Equation {
         get: Properties::get_T,
         lhs: Properties::update_T,
-        rhs: heat_diffusion,
+        source: heat_diffusion,
         dimension: 1,
     };
     // define the boundary conditions
