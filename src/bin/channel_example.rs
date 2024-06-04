@@ -28,7 +28,7 @@ fn main() {
     let _solution = solver::solve(
         &initial_mesh,
         2.,
-        0.0001,
+        0.001,
         solver::runge_kutta_4::<Properties>,
         output_args,
     );
@@ -125,9 +125,11 @@ impl HasProperties for Properties {
         self.rho = (interpolation_matrix * &cell_properties.rho.transpose()).transpose();
         self.u = (interpolation_matrix * &cell_properties.u.transpose()).transpose();
         self.p = (interpolation_matrix * &cell_properties.p.transpose()).transpose();
-        self.specific_energy =
-            (interpolation_matrix * &cell_properties.specific_energy.transpose()).transpose();
         self.gamma = (interpolation_matrix * &cell_properties.gamma.transpose()).transpose();
+        // the following is a "derived property" and is therefore recomputed to avoid incosisntency
+        let list_of_velocity_magnitude: RowDVector<f64> = self.u.component_mul(&self.u).row_sum();
+        self.specific_energy = self.p.component_div(&self.gamma.add_scalar(-1.))
+            + 0.5 * self.rho.component_mul(&list_of_velocity_magnitude);
     }
 
     fn export(&self) -> Vec<(String, Vec<f64>)> {
@@ -236,20 +238,20 @@ pub fn create_mesh() -> problem::Problem<Properties> {
 fn rusanov_scalar(
     owner_properties: &Properties,
     neighbor_properties: &Properties,
-    flux: fn(&Properties, usize) -> Vector3<f64>,
+    flux: fn(&Properties, &Properties, usize) -> Vector3<f64>,
     var: fn(&Properties, usize) -> f64,
     i_f: usize,
     scaled_normal: &Vector3<f64>,
 ) -> f64 {
-    let f1 = flux(owner_properties, i_f);
-    let f2 = flux(neighbor_properties, i_f);
+    let f = flux(&owner_properties, &neighbor_properties, i_f);
     let area = scaled_normal.norm();
     let lambda = f64::max(
-        owner_properties.u.column(i_f).dot(scaled_normal).abs()
+        // we take u_x to match the source but eventually we should take the normal velocity
+        owner_properties.u[(0, i_f)].abs() * area
             + f64::sqrt(
                 owner_properties.gamma[i_f] * owner_properties.p[i_f] / owner_properties.rho[i_f],
             ) * area,
-        neighbor_properties.u.column(i_f).dot(scaled_normal).abs()
+        neighbor_properties.u[(0, i_f)].abs() * area
             + f64::sqrt(
                 neighbor_properties.gamma[i_f] * neighbor_properties.p[i_f]
                     / neighbor_properties.rho[i_f],
@@ -257,26 +259,25 @@ fn rusanov_scalar(
     );
     let u1 = var(owner_properties, i_f);
     let u2 = var(neighbor_properties, i_f);
-    0.5 * (f1 + f2).dot(scaled_normal) - 0.5 * lambda * (u2 - u1)
+    f.dot(scaled_normal) - 0.5 * lambda * (u2 - u1)
 }
 
 fn rusanov_vector(
     owner_properties: &Properties,
     neighbor_properties: &Properties,
-    flux: fn(&Properties, usize) -> Matrix3<f64>,
+    flux: fn(&Properties, &Properties, usize) -> Matrix3<f64>,
     var: fn(&Properties, usize) -> Vector3<f64>,
     i_f: usize,
     scaled_normal: &Vector3<f64>,
 ) -> Vector3<f64> {
-    let f1 = flux(owner_properties, i_f);
-    let f2 = flux(neighbor_properties, i_f);
+    let f = flux(&owner_properties, &neighbor_properties, i_f);
     let area = scaled_normal.norm();
     let lambda = f64::max(
-        owner_properties.u.column(i_f).dot(scaled_normal).abs()
+        owner_properties.u[(0, i_f)].abs() * area
             + f64::sqrt(
                 owner_properties.gamma[i_f] * owner_properties.p[i_f] / owner_properties.rho[i_f],
             ) * area,
-        neighbor_properties.u.column(i_f).dot(scaled_normal).abs()
+        neighbor_properties.u[(0, i_f)].abs() * area
             + f64::sqrt(
                 neighbor_properties.gamma[i_f] * neighbor_properties.p[i_f]
                     / neighbor_properties.rho[i_f],
@@ -284,7 +285,7 @@ fn rusanov_vector(
     );
     let u1 = var(owner_properties, i_f);
     let u2 = var(neighbor_properties, i_f);
-    0.5 * (f1 + f2) * scaled_normal - 0.5 * lambda * (u2 - u1)
+    f * scaled_normal - 0.5 * lambda * (u2 - u1)
 }
 
 ////////////////////////
@@ -314,8 +315,8 @@ impl Properties {
         self.rho[i]
     }
 
-    fn euler_mass_flux(&self, i: usize) -> Vector3<f64> {
-        self.rho[i] * self.u.column(i)
+    fn euler_mass_flux(&self, other: &Properties, i: usize) -> Vector3<f64> {
+        0.5 * (self.rho[i] * self.u.column(i) + other.rho[i] * other.u.column(i))
     }
 }
 
@@ -370,9 +371,12 @@ impl Properties {
         self.rho[i] * self.u.column(i)
     }
 
-    fn euler_impulse_flux(&self, i: usize) -> Matrix3<f64> {
-        return self.rho[i] * self.u.column(i) * self.u.column(i).transpose()
-            + self.p[i] * Matrix3::identity();
+    fn euler_impulse_flux(&self, other: &Properties, i: usize) -> Matrix3<f64> {
+        let mom_star = 0.5 * (self.rho[i] * self.u.column(i) + other.rho[i] * other.u.column(i));
+        let rho_star = 0.5 * (self.rho[i] + other.rho[i]);
+        let en_star = 0.5 * (self.specific_energy[i] + other.specific_energy[i]);
+        let p_star = (self.gamma[i] - 1.0) * (en_star - 0.5 * mom_star.dot(&mom_star) / rho_star);
+        mom_star * mom_star.transpose() / rho_star + p_star * Matrix3::identity()
     }
 }
 
@@ -425,8 +429,12 @@ impl Properties {
         self.specific_energy[i]
     }
 
-    fn euler_energy_flux(&self, i: usize) -> Vector3<f64> {
-        return self.u.column(i) * (self.specific_energy[i] + self.p[i]);
+    fn euler_energy_flux(&self, other: &Properties, i: usize) -> Vector3<f64> {
+        let mom_star = 0.5 * (self.rho[i] * self.u.column(i) + other.rho[i] * other.u.column(i));
+        let rho_star = 0.5 * (self.rho[i] + other.rho[i]);
+        let en_star = 0.5 * (self.specific_energy[i] + other.specific_energy[i]);
+        let p_star = (self.gamma[i] - 1.0) * (en_star - 0.5 * mom_star.dot(&mom_star) / rho_star);
+        return mom_star / rho_star * (en_star + p_star);
     }
 }
 

@@ -114,6 +114,16 @@ fn unsigned_tetrahedron_volume(
     signed_tetrahedron_volume(a, b, c, d).abs()
 }
 
+/// Checks if three points are collinear.
+/// This is done by checking if the cross product of two vectors is zero.
+pub fn points_are_collinear(a: &Point3<f64>, b: &Point3<f64>, c: &Point3<f64>) -> bool {
+    let ab = b - a;
+    let ac = c - a;
+    ab.cross(&ac).norm() < f64::EPSILON
+}
+
+/// Computes the intersection of a line and a plane.
+/// Returns None if the line is parallel to the plane.
 pub fn line_plane_intersection(
     line_point_1: &Point3<f64>,
     line_point_2: &Point3<f64>,

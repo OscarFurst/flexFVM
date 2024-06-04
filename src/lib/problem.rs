@@ -1,7 +1,9 @@
 use crate::computational_cell::{HasProperties, NeighborType};
 use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
-use crate::geometry_utils::{barycentric_coordinates, line_plane_intersection};
+use crate::geometry_utils::{
+    barycentric_coordinates, line_plane_intersection, points_are_collinear,
+};
 use crate::mesh::Mesh;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -418,6 +420,8 @@ impl<T: HasProperties> Problem<T> {
     /// Method is from the following paper :
     /// Clément Le Touze, Angelo Murrone, Herve Guillard. Multislope MUSCL method for general unstructured
     /// meshes. Journal of Computational Physics, 2014, pp.44. 10.1016/j.jcp.2014.12.032 . hal-00939475v3
+    ///
+    /// Currently, 2D is only supported for structured meshes.
     #[allow(non_snake_case)]
     pub fn prepare_MUSCL_interpolation(&mut self) {
         // TODO : this function is incredibly slow and needs to be optimized
@@ -429,16 +433,18 @@ impl<T: HasProperties> Problem<T> {
         A_neighbor.reserve(self.mesh.faces.len() * 7);
         // make a nice progress bar
         println!("💪 Preparing MUSCL face-values interpolation ...");
-        let pb = ProgressBar::new(self.mesh.cells.r.len() as u64);
+        let pb: ProgressBar = ProgressBar::new(self.mesh.cells.r.len() as u64);
         pb.set_style(
             indicatif::ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
                 .unwrap()
                 .progress_chars("##-"),
         );
+        let mut good_faces = 0;
         for i_p in 0..self.mesh.cells.r.len() {
             // update progress bar
             pb.inc(1);
+            pb.set_message(format!("good faces : {}", good_faces));
             // first we look for all the cells sharing at least one vertex with the cell i_cell
             // TODO : this does not account for periodic boundary conditions in which the cells share neither vertices nor faces!!!
             let p_vertices = self.mesh.cell_vertices(i_p);
@@ -484,7 +490,13 @@ impl<T: HasProperties> Problem<T> {
                         BiMij.dot(&BkMij) > 0.0
                     })
                     .count();
-                if n_back >= 3 {
+                if points_are_collinear(
+                    &face.center,
+                    &self.mesh.cells.r[i_p],
+                    &self.mesh.cells.r[neighbors[0]],
+                ) {
+                    point_backward = Some([(neighbors[0], 1.0), (0, 0.0), (0, 0.0)]);
+                } else if n_back >= 3 {
                     // we try combinations of 3 neighbors sorted after the sum of their indices
                     for list in neighbors
                         .iter()
@@ -526,7 +538,13 @@ impl<T: HasProperties> Problem<T> {
                 // find the number of elemets for which cos(BkBi, BiMij) is positive
                 neighbors.reverse();
                 let n_forward = neighbors.len() - n_back;
-                if n_forward >= 3 {
+                if points_are_collinear(
+                    &face.center,
+                    &self.mesh.cells.r[i_p],
+                    &self.mesh.cells.r[neighbors[0]],
+                ) {
+                    point_forward = Some([(neighbors[0], 1.0), (0, 0.0), (0, 0.0)]);
+                } else if n_forward >= 3 {
                     // we try combinations of 3 neighbors sorted after the sum of their indices
                     for list in neighbors
                         .iter()
@@ -576,6 +594,7 @@ impl<T: HasProperties> Problem<T> {
                     Some([(B1, Balpha), (B2, Bbeta), (B3, Bgamma)]),
                 ) = (point_forward, point_backward)
                 {
+                    good_faces += 1;
                     // reconstruct the position of the forward and backward points
                     let F = Point3::origin()
                         + Falpha * (self.mesh.cells.r[F1] - Point3::origin())
@@ -591,12 +610,12 @@ impl<T: HasProperties> Problem<T> {
                     // the value at the face is the value at the center times the slope times to_face.
                     // the slope is the difference between the forward and backward values divided by the distance.
                     matrix.push(i_face, i_p, 1.0);
-                    matrix.push(i_face, F1, to_face * Falpha / distance);
-                    matrix.push(i_face, F2, to_face * Fbeta / distance);
-                    matrix.push(i_face, F3, to_face * Fgamma / distance);
-                    matrix.push(i_face, B1, -to_face * Balpha / distance);
-                    matrix.push(i_face, B2, -to_face * Bbeta / distance);
-                    matrix.push(i_face, B3, -to_face * Bgamma / distance);
+                    matrix.push(i_face, F1, -to_face * Falpha / distance);
+                    matrix.push(i_face, F2, -to_face * Fbeta / distance);
+                    matrix.push(i_face, F3, -to_face * Fgamma / distance);
+                    matrix.push(i_face, B1, to_face * Balpha / distance);
+                    matrix.push(i_face, B2, to_face * Bbeta / distance);
+                    matrix.push(i_face, B3, to_face * Bgamma / distance);
                 } else {
                     // first order interpolation
                     matrix.push(i_face, i_p, 1.0);
