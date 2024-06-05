@@ -11,11 +11,23 @@ pub struct SolverOutputArgs {
     pub print_vtk: bool,
 }
 
-pub fn solve<T: HasProperties>(
+pub trait SolverStrategy {
+    fn new<T: HasProperties>(problem: &Problem<T>) -> Self;
+
+    fn solve<T: HasProperties>(
+        &mut self,
+        problem: &mut Problem<T>,
+        t: f64,
+        x: &mut DVector<f64>,
+        h: f64,
+    ) -> bool;
+}
+
+pub fn solve<T: HasProperties, S: SolverStrategy>(
     initial_problem: &Problem<T>,
     t_end: f64,
     h0: f64,
-    solver: fn(&mut Problem<T>, f64, &mut DVector<f64>, f64) -> DVector<f64>,
+    mut solver: S,
     output_args: SolverOutputArgs,
 ) -> Problem<T> {
     let mut problem = initial_problem.clone();
@@ -51,8 +63,7 @@ pub fn solve<T: HasProperties>(
         pb.inc(1);
         pb.set_message(format!("t = {:.2} s", t));
         // solve
-        let y = (solver)(&mut problem, t, &mut x, h0);
-        if stop_criterial(&y, t) {
+        if solver.solve(&mut problem, t, &mut x, h0) {
             break;
         };
         t += h0;
@@ -87,54 +98,93 @@ pub fn solve<T: HasProperties>(
     problem
 }
 
-pub fn euler_explicit<T: HasProperties>(
-    problem: &mut Problem<T>,
-    t: f64,
-    x: &mut DVector<f64>,
-    h: f64,
-) -> DVector<f64> {
-    problem.update(x);
-    let y = problem.setup_equations(t);
-    for i in 0..x.len() {
-        x[i] += h * y[i]; // loop is faster than DVector product last time I checked
-    }
-    y
+/// Euler explicit first order solver
+pub struct EulerExplicitSolver {
+    // the vector is allocated once and reused to improve performance
+    y: DVector<f64>,
 }
 
-pub fn runge_kutta_4<T: HasProperties>(
-    problem: &mut Problem<T>,
-    t: f64,
-    x: &mut DVector<f64>,
-    h: f64,
-) -> DVector<f64> {
-    problem.update(x);
-    let k1 = problem.setup_equations(t);
-    let mut x1 = x.clone();
-    for i in 0..x.len() {
-        x1[i] += 0.5 * h * k1[i];
+impl SolverStrategy for EulerExplicitSolver {
+    fn new<T: HasProperties>(problem: &Problem<T>) -> Self {
+        EulerExplicitSolver {
+            y: DVector::zeros(problem.n_eq()),
+        }
     }
-    problem.update(&x1);
-    let k2 = problem.setup_equations((t + 0.5 * h));
-    let mut x2 = x.clone();
-    for i in 0..x.len() {
-        x2[i] += 0.5 * h * k2[i];
+
+    fn solve<T: HasProperties>(
+        &mut self,
+        problem: &mut Problem<T>,
+        t: f64,
+        x: &mut DVector<f64>,
+        h: f64,
+    ) -> bool {
+        problem.update(x);
+        problem.setup_equations_in_place(t, &mut self.y);
+        for i in 0..x.len() {
+            x[i] += h * self.y[i]; // loop is faster than DVector product last time I checked
+        }
+        stop_criterial(&self.y, t)
     }
-    problem.update(&x2);
-    let k3 = problem.setup_equations((t + 0.5 * h));
-    let mut x3 = x.clone();
-    for i in 0..x.len() {
-        x3[i] += h * k3[i];
+}
+
+/// Runge-Kutta fourth order explicit solver
+pub struct RK4Solver {
+    // all these vectors are allocated once and reused to improve performance
+    k1: DVector<f64>,
+    k2: DVector<f64>,
+    k3: DVector<f64>,
+    k4: DVector<f64>,
+    x_alt: DVector<f64>,
+    y: DVector<f64>,
+}
+
+impl SolverStrategy for RK4Solver {
+    fn new<T: HasProperties>(problem: &Problem<T>) -> Self {
+        RK4Solver {
+            k1: DVector::zeros(problem.n_eq()),
+            k2: DVector::zeros(problem.n_eq()),
+            k3: DVector::zeros(problem.n_eq()),
+            k4: DVector::zeros(problem.n_eq()),
+            x_alt: DVector::zeros(problem.n_eq()),
+            y: DVector::zeros(problem.n_eq()),
+        }
     }
-    problem.update(&x3);
-    let k4 = problem.setup_equations((t + h));
-    let mut y = x.clone();
-    for i in 0..x.len() {
-        // final derivative
-        y[i] = (k1[i] + 2. * k2[i] + 2. * k3[i] + k4[i]) / 6.;
-        // final solution
-        x[i] += h * y[i];
+
+    fn solve<T: HasProperties>(
+        &mut self,
+        problem: &mut Problem<T>,
+        t: f64,
+        x: &mut DVector<f64>,
+        h: f64,
+    ) -> bool {
+        problem.update(x);
+        problem.setup_equations_in_place(t, &mut self.k1);
+        self.x_alt.copy_from(x);
+        for i in 0..x.len() {
+            self.x_alt[i] += 0.5 * h * self.k1[i];
+        }
+        problem.update(&self.x_alt);
+        problem.setup_equations_in_place(t + 0.5 * h, &mut self.k2);
+        self.x_alt.copy_from(x);
+        for i in 0..x.len() {
+            self.x_alt[i] += 0.5 * h * self.k2[i];
+        }
+        problem.update(&self.x_alt);
+        problem.setup_equations_in_place(t + 0.5 * h, &mut self.k3);
+        self.x_alt.copy_from(x);
+        for i in 0..x.len() {
+            self.x_alt[i] += h * self.k3[i];
+        }
+        problem.update(&self.x_alt);
+        problem.setup_equations_in_place(t + h, &mut self.k4);
+        for i in 0..x.len() {
+            // final derivative
+            self.y[i] = (self.k1[i] + 2. * self.k2[i] + 2. * self.k3[i] + self.k4[i]) / 6.;
+            // final solution
+            x[i] += h * self.y[i];
+        }
+        stop_criterial(&self.y, t)
     }
-    y
 }
 
 fn stop_criterial(y: &DVector<f64>, t: f64) -> bool {

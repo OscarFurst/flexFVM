@@ -1,5 +1,6 @@
 use flex_fvm::computational_cell::HasProperties;
 use flex_fvm::problem;
+use flex_fvm::solver::SolverStrategy;
 use flex_fvm::{
     equation::{BoundaryCondition, Equation},
     solver,
@@ -29,7 +30,7 @@ fn main() {
         &initial_mesh,
         2.,
         0.001,
-        solver::runge_kutta_4::<Properties>,
+        solver::RK4Solver::new(&initial_mesh),
         output_args,
     );
 }

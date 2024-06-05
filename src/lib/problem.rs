@@ -294,7 +294,7 @@ impl<T: HasProperties> Problem<T> {
             "Dimension mismatch in setup_equations_in_place"
         );
         y.fill(0.0);
-        // TODO : disable the "sourface flux equations" completely if they are all None so that it's faster
+        // TODO : disable the "surface flux equations" completely if they are all None so that it's faster
         let mut face_fluxes = Vec::with_capacity(self.mesh.faces.len());
         for i_f in 0..self.mesh.faces.len() {
             let mut single_face_fluxes = Vec::with_capacity(
