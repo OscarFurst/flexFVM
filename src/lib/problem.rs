@@ -1,12 +1,9 @@
 use crate::computational_cell::{HasProperties, NeighborType};
 use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
-use crate::geometry_utils::{
-    barycentric_coordinates, line_plane_intersection, points_are_collinear,
-};
+use crate::geometry_utils::points_are_collinear;
 use crate::mesh::Mesh;
 use indicatif::ProgressBar;
-use itertools::Itertools;
 use nalgebra::{DVector, Point3, Vector3};
 use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
 use std::error::Error;
@@ -433,7 +430,6 @@ impl<T: HasProperties> Problem<T> {
     /// Currently, 2D is only supported for structured meshes.
     #[allow(non_snake_case)]
     pub fn prepare_MUSCL_interpolation(&mut self) {
-        // TODO : this function is incredibly slow and needs to be optimized
         let mut A_owner = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
         let mut A_neighbor = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
         // Allocate enough space. This is a bit more than required due to boundaries which take 1 entry instead of 7,
@@ -450,28 +446,19 @@ impl<T: HasProperties> Problem<T> {
                 .progress_chars("##-"),
         );
         let mut good_faces = 0;
+        let total_faces = self.mesh.faces.len();
+        // this is a preparation for the algorithm that will follow
+        self.mesh.collect_vertex_cells();
         for i_p in 0..self.mesh.cells.r.len() {
             // update progress bar
             pb.inc(1);
-            pb.set_message(format!("good faces : {}", good_faces));
+            pb.set_message(format!(
+                "second order faces : {} / {}",
+                good_faces, total_faces
+            ));
             // first we look for all the cells sharing at least one vertex with the cell i_cell
             // TODO : this does not account for periodic boundary conditions in which the cells share neither vertices nor faces!!!
-            let p_vertices = self.mesh.cell_vertices(i_p);
-            let mut neighbors = Vec::new();
-            for i_n in 0..self.mesh.cells.r.len() {
-                if i_n == i_p {
-                    continue;
-                }
-                if self
-                    .mesh
-                    .cell_vertices(i_n)
-                    .iter()
-                    .any(|i| p_vertices.contains(i))
-                {
-                    neighbors.push(i_n);
-                    continue;
-                }
-            }
+            let mut neighbors = self.mesh.extended_neighborhood(i_p);
             // at this point we have a list of neighbors.
             for &i_face in self.mesh.cells.faces[i_p].iter() {
                 // now for each face of the cell, we want to find two points (forward and backward) so that we can compute a slope
@@ -479,117 +466,44 @@ impl<T: HasProperties> Problem<T> {
                 let mut point_forward = None;
                 let mut point_backward = None;
                 // vector pointing from the owner center to the face center
-                let BiMij = self.mesh.faces.center[i_face] - self.mesh.cells.r[i_p];
+                let Bi = &self.mesh.cells.r[i_p];
+                let Mij = &self.mesh.faces.center[i_face];
+                let BiMij = Mij - Bi;
                 // now we sort the list of neighbors in decreasing order of the value cos(BkBi, BiMij)
                 neighbors.sort_by(|&i, &j| {
-                    let BkMij = self.mesh.cells.r[i] - self.mesh.cells.r[i_p];
+                    let BkMij = self.mesh.cells.r[i] - Bi;
                     let cos_i = BiMij.dot(&BkMij) / (BiMij.norm() * BkMij.norm());
-                    let BkMij = self.mesh.cells.r[j] - self.mesh.cells.r[i_p];
+                    let BkMij = self.mesh.cells.r[j] - Bi;
                     let cos_j = BiMij.dot(&BkMij) / (BiMij.norm() * BkMij.norm());
-                    cos_j.partial_cmp(&cos_i).unwrap()
+                    cos_j.partial_cmp(&cos_i).expect("Failed to compare floats when sorting cell neighbors during MUSCL interpolation")
                 });
-                // TODO : the following belongs in a function that is called twice with neighbors sorted by a different criteria
                 // in this sorted list, the first elements are the most backward neighbors, and the last elements are the most forward neighbors
                 // find the number of elemets for which cos(BkBi, BiMij) is positive
                 let n_back = neighbors
                     .iter()
                     .take_while(|&&i| {
-                        let BkMij = self.mesh.cells.r[i] - self.mesh.cells.r[i_p];
+                        let BkMij = self.mesh.cells.r[i] - Bi;
                         BiMij.dot(&BkMij) > 0.0
                     })
                     .count();
-                if points_are_collinear(
-                    &self.mesh.faces.center[i_face],
-                    &self.mesh.cells.r[i_p],
-                    &self.mesh.cells.r[neighbors[0]],
-                ) {
+                if points_are_collinear(Mij, Bi, &self.mesh.cells.r[neighbors[0]]) {
                     point_backward = Some([(neighbors[0], 1.0), (0, 0.0), (0, 0.0)]);
                 } else if n_back >= 3 {
                     // we try combinations of 3 neighbors sorted after the sum of their indices
-                    for list in neighbors
-                        .iter()
-                        .enumerate()
-                        .combinations(3)
-                        .sorted_by(|a, b| {
-                            Ord::cmp(
-                                &a.iter().map(|a| a.0).sum::<usize>(),
-                                &b.iter().map(|b| b.0).sum::<usize>(),
-                            )
-                        })
-                    {
-                        let B1 = self.mesh.cells.r[*list[0].1];
-                        let B2 = self.mesh.cells.r[*list[1].1];
-                        let B3 = self.mesh.cells.r[*list[2].1];
-                        let plane_normal = (B2 - B1).cross(&(B3 - B1));
-                        // compute the intersection of BiMij with the plane defined by the three points
-                        if let Some(H) = line_plane_intersection(
-                            &self.mesh.faces.center[i_face],
-                            &self.mesh.cells.r[i_p],
-                            &B1,
-                            &plane_normal,
-                        ) {
-                            // we compute the barycentric coordinates of H in the triangle B1B2B3
-                            let (alpha, beta, gamma) = barycentric_coordinates(&B1, &B2, &B3, &H);
-                            // check if the point is in the triangle
-                            if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
-                                // we have found the point H, now we can interpolate the properties of the point
-                                point_backward = Some([
-                                    (*list[0].1, alpha),
-                                    (*list[1].1, beta),
-                                    (*list[2].1, gamma),
-                                ]);
-                                break;
-                            }
-                        }
-                    }
+                    point_backward = self
+                        .mesh
+                        .best_barycentric_interpolation(Mij, Bi, &neighbors);
                 }
                 // find the number of elemets for which cos(BkBi, BiMij) is positive
                 neighbors.reverse();
                 let n_forward = neighbors.len() - n_back;
-                if points_are_collinear(
-                    &self.mesh.faces.center[i_face],
-                    &self.mesh.cells.r[i_p],
-                    &self.mesh.cells.r[neighbors[0]],
-                ) {
+                if points_are_collinear(Mij, Bi, &self.mesh.cells.r[neighbors[0]]) {
                     point_forward = Some([(neighbors[0], 1.0), (0, 0.0), (0, 0.0)]);
                 } else if n_forward >= 3 {
                     // we try combinations of 3 neighbors sorted after the sum of their indices
-                    for list in neighbors
-                        .iter()
-                        .enumerate()
-                        .combinations(3)
-                        .sorted_by(|a, b| {
-                            Ord::cmp(
-                                &a.iter().map(|a| a.0).sum::<usize>(),
-                                &b.iter().map(|b| b.0).sum::<usize>(),
-                            )
-                        })
-                    {
-                        let B1 = self.mesh.cells.r[*list[0].1];
-                        let B2 = self.mesh.cells.r[*list[1].1];
-                        let B3 = self.mesh.cells.r[*list[2].1];
-                        let plane_normal = (B2 - B1).cross(&(B3 - B1));
-                        // compute the intersection of BiMij with the plane defined by the three points
-                        if let Some(H) = line_plane_intersection(
-                            &self.mesh.faces.center[i_face],
-                            &self.mesh.cells.r[i_p],
-                            &B1,
-                            &plane_normal,
-                        ) {
-                            // we compute the barycentric coordinates of H in the triangle B1B2B3
-                            let (alpha, beta, gamma) = barycentric_coordinates(&B1, &B2, &B3, &H);
-                            // check if the point is in the triangle
-                            if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
-                                // we have found the point H, now we can interpolate the properties of the point
-                                point_forward = Some([
-                                    (*list[0].1, alpha),
-                                    (*list[1].1, beta),
-                                    (*list[2].1, gamma),
-                                ]);
-                                break;
-                            }
-                        }
-                    }
+                    point_forward = self
+                        .mesh
+                        .best_barycentric_interpolation(Mij, Bi, &neighbors);
                 }
                 // check if we are setting the "owner" side of the face or the "neighbor" side.
                 let matrix = if self.mesh.faces.owner[i_face].0 == i_p {
@@ -603,18 +517,20 @@ impl<T: HasProperties> Problem<T> {
                 ) = (point_forward, point_backward)
                 {
                     good_faces += 1;
+                    let origin = Point3::origin();
                     // reconstruct the position of the forward and backward points
-                    let F = Point3::origin()
-                        + Falpha * (self.mesh.cells.r[F1] - Point3::origin())
-                        + Fbeta * (self.mesh.cells.r[F2] - Point3::origin())
-                        + Fgamma * (self.mesh.cells.r[F3] - Point3::origin());
-                    let B = Point3::origin()
-                        + Balpha * (self.mesh.cells.r[B1] - Point3::origin())
-                        + Bbeta * (self.mesh.cells.r[B2] - Point3::origin())
-                        + Bgamma * (self.mesh.cells.r[B3] - Point3::origin());
+                    // this looks stupid because we need to transform points into vectors
+                    let F = origin
+                        + Falpha * (self.mesh.cells.r[F1] - origin)
+                        + Fbeta * (self.mesh.cells.r[F2] - origin)
+                        + Fgamma * (self.mesh.cells.r[F3] - origin);
+                    let B = origin
+                        + Balpha * (self.mesh.cells.r[B1] - origin)
+                        + Bbeta * (self.mesh.cells.r[B2] - origin)
+                        + Bgamma * (self.mesh.cells.r[B3] - origin);
                     // get the geometrical data needed for the interpolation
                     let distance = (F - B).norm();
-                    let to_face = (self.mesh.faces.center[i_face] - self.mesh.cells.r[i_p]).norm();
+                    let to_face = (Mij - Bi).norm();
                     // the value at the face is the value at the center times the slope times to_face.
                     // the slope is the difference between the forward and backward values divided by the distance.
                     matrix.push(i_face, i_p, 1.0);

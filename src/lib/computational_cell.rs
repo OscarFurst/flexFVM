@@ -3,6 +3,7 @@ use crate::mesh::Mesh;
 use crate::{geometry_utils::*, problem};
 use nalgebra::{Point3, RowDVector, Vector3};
 use nalgebra_sparse::csr::CsrMatrix;
+use std::collections::HashSet;
 use std::fmt;
 
 ///////////////////////////
@@ -21,6 +22,8 @@ pub struct CellData {
     pub r: Vec<Point3<f64>>,
     pub volume: RowDVector<f64>,
     pub zone: Vec<usize>,
+    // optional, needs to be initialized before use!
+    pub vertices: Vec<HashSet<usize>>,
 }
 impl Default for CellData {
     fn default() -> Self {
@@ -29,6 +32,7 @@ impl Default for CellData {
             r: Vec::new(),
             volume: RowDVector::from_vec(Vec::new()),
             zone: Vec::new(),
+            vertices: Vec::new(),
         }
     }
 }

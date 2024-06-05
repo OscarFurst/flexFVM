@@ -1,5 +1,8 @@
-use crate::computational_cell::{CellData, Face, FaceMut, Faces, NeighborType};
-use crate::geometry_utils::{polyhedron_center, polyhedron_volume};
+use crate::computational_cell::{CellData, FaceMut, Faces, NeighborType};
+use crate::geometry_utils::{
+    barycentric_coordinates, line_plane_intersection, polyhedron_center, polyhedron_volume,
+};
+use itertools::Itertools;
 use nalgebra::{Point3, Vector3};
 use std::collections::HashSet;
 
@@ -13,6 +16,8 @@ pub struct Mesh {
     pub faces: Faces,
     pub cells: CellData,
     pub periodic_pairs: Vec<(usize, Option<usize>)>,
+    // optional, needs to be initialized with "collect_vertex_cells" before use
+    pub vertex_cells: Vec<Vec<usize>>,
 }
 
 impl Mesh {
@@ -22,6 +27,7 @@ impl Mesh {
             faces: Faces::new(),
             cells: CellData::default(),
             periodic_pairs: Vec::new(),
+            vertex_cells: Vec::new(),
         }
     }
 
@@ -236,12 +242,87 @@ impl Mesh {
             .collect::<Vec<Vec<Point3<f64>>>>()
     }
 
-    /// returns the indices of the vertices of the cell with no duplicates
-    pub fn cell_vertices(&self, i_cell: usize) -> HashSet<usize> {
-        self.cells.faces[i_cell]
+    /// initialized the "vertex_cells" field of the mesh with the list of vertices that are part of each cell
+    pub fn collect_cell_vertices(&mut self) {
+        self.cells.vertices.reserve(self.n_cells());
+        for list_of_faces in self.cells.faces.iter() {
+            self.cells.vertices.push(
+                list_of_faces
+                    .iter()
+                    .flat_map(|&i_face| self.faces.vertices[i_face].clone())
+                    .collect::<HashSet<usize>>(),
+            )
+        }
+    }
+
+    /// initialized the "vertex_cells" field of the mesh with the list of cells that contain each vertex
+    pub fn collect_vertex_cells(&mut self) {
+        if self.cells.vertices.is_empty() {
+            self.collect_cell_vertices();
+        }
+        self.vertex_cells = vec![Vec::new(); self.vertices.len()];
+        for (i_cell, vertices) in self.cells.vertices.iter().enumerate() {
+            for &i_vertex in vertices.iter() {
+                self.vertex_cells[i_vertex].push(i_cell);
+            }
+        }
+    }
+
+    /// returns a list of cells that have at least one vertex in common with the cell i_cell
+    /// the "vertex_cells" field of the mesh must be initialized before calling this function
+    pub fn extended_neighborhood(&self, i_cell: usize) -> Vec<usize> {
+        let mut neighbor_set = HashSet::new();
+        let cell_vertices = &self.cells.vertices[i_cell];
+        for &i_vertex in cell_vertices.iter() {
+            for &i_neighbor in self.vertex_cells[i_vertex].iter() {
+                neighbor_set.insert(i_neighbor);
+            }
+        }
+        neighbor_set.remove(&i_cell);
+        neighbor_set.into_iter().collect()
+    }
+
+    /// interpolates a point "P" on the line between "Mij" and "Bi" using barycentric interpolation
+    /// of points in the sorted list of neighbors. The first points in the list are prioritized,
+    /// and if more than 3 points are provided, the subsequent points are only used if the line does not
+    /// intersect the triangle defined by the first 3 points.
+    /// The result is a list of tuples with the index of the points used for interpolation and their corresponding
+    /// barycentric coordinates.
+    #[allow(non_snake_case)]
+    pub fn best_barycentric_interpolation(
+        &self,
+        Mij: &Point3<f64>,
+        Bi: &Point3<f64>,
+        sorted_list_of_neighbors: &[usize],
+    ) -> Option<[(usize, f64); 3]> {
+        for list in sorted_list_of_neighbors
             .iter()
-            .flat_map(|&i_face| self.faces.vertices[i_face].clone())
-            .collect::<HashSet<usize>>()
+            .enumerate()
+            // we consider all combinations of 3 points and sort them by the sum of their indices
+            .combinations(3)
+            .sorted_by(|a, b| {
+                Ord::cmp(
+                    &a.iter().map(|a| a.0).sum::<usize>(),
+                    &b.iter().map(|b| b.0).sum::<usize>(),
+                )
+            })
+        {
+            let B1 = &self.cells.r[*list[0].1];
+            let B2 = &self.cells.r[*list[1].1];
+            let B3 = &self.cells.r[*list[2].1];
+            let plane_normal = (B2 - B1).cross(&(B3 - B1));
+            // compute the intersection of BiMij with the plane defined by the three points
+            if let Some(H) = line_plane_intersection(Mij, Bi, B1, &plane_normal) {
+                // we compute the barycentric coordinates of H in the triangle B1B2B3
+                let (alpha, beta, gamma) = barycentric_coordinates(B1, B2, B3, &H);
+                // check if the point is in the triangle
+                if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
+                    // we have found the point H, now we can interpolate the properties of the point
+                    return Some([(*list[0].1, alpha), (*list[1].1, beta), (*list[2].1, gamma)]);
+                }
+            }
+        }
+        None
     }
 }
 
