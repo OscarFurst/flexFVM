@@ -169,41 +169,43 @@ impl<T: HasProperties> Problem<T> {
         // TODO : this function is cursed, needs to be cleaned up.
         if let (point, normal, Some(BoundaryCondition(name, values)), index) = boundary {
             // unwrap here because something is wrong if this fails
-            let face_center = self
+            let face_id = self
                 .mesh
-                .get_face_on_plane(point, normal, cell_index)
-                .unwrap()
-                .center;
+                .get_face_id_on_plane(point, normal, cell_index)
+                .unwrap();
+            let face_center = self.mesh.faces.center[face_id];
             let mut neighb = NeighborType::Nil;
             match name as &str {
                 "periodic" => {
                     // search for the other face with the same boundary condition
                     let mut found_twin = false;
-                    if !self.mesh.faces.is_empty() {
+                    if self.mesh.periodic_pairs.len() > 0 {
                         let twin_direction = Vector3::new(values[0], values[1], values[2]);
-                        for i in 0..self.mesh.faces.len() {
+                        for i in 0..self.mesh.periodic_pairs.len() {
+                            let i_f = self.mesh.periodic_pairs[i].0;
                             if let NeighborType::Boundary(face_bc_index) =
-                                self.mesh.faces[i].neighbor
+                                self.mesh.faces.neighbor[i_f]
                             {
-                                if self.equation_containers[self.mesh.faces[i].get_zone(self)]
+                                if self.equation_containers[self.get_face_zone(i_f)]
                                     .boundary_conditions[face_bc_index]
                                     .0
                                     == "periodic"
                                 {
                                     // we found another face with a periodic BC, now we need to check if it is the twin face
-                                    let face = &mut self.mesh.faces[i];
-                                    if (face.center - face_center).cross(&twin_direction).norm()
+                                    let face = self.mesh.faces.get_face_mut(i_f);
+                                    if (*face.center - face_center).cross(&twin_direction).norm()
                                         < f64::EPSILON
                                     {
                                         found_twin = true;
+                                        self.mesh.periodic_pairs[i].1 = Some(i_f);
                                         // in this case we have to set up two faces instead of jsut one !
-                                        face.neighbor = NeighborType::Internal(
+                                        *face.neighbor = NeighborType::Internal(
                                             cell_index,
-                                            (face.center - self.mesh.cells.r[cell_index]).norm(),
+                                            (*face.center - self.mesh.cells.r[cell_index]).norm(),
                                         );
                                         neighb = NeighborType::Internal(
                                             face.owner.0,
-                                            (self.mesh.cells.r[face.owner.0] - face.center).norm(),
+                                            (self.mesh.cells.r[face.owner.0] - *face.center).norm(),
                                         );
                                         break;
                                     }
@@ -212,6 +214,7 @@ impl<T: HasProperties> Problem<T> {
                         }
                     }
                     if !found_twin {
+                        self.mesh.periodic_pairs.push((face_id, None));
                         neighb = NeighborType::Boundary(*index);
                     }
                 }
@@ -224,7 +227,7 @@ impl<T: HasProperties> Problem<T> {
                 .mesh
                 .get_face_on_plane(point, normal, cell_index)
                 .unwrap();
-            boundary_face.neighbor = neighb;
+            *boundary_face.neighbor = neighb;
             // make sure a boundary was assigned correctly
             if matches!(boundary_face.neighbor, NeighborType::Nil) {
                 panic!("Boundary condition not assigned correctly");
@@ -237,9 +240,10 @@ impl<T: HasProperties> Problem<T> {
     /// no face should have a NeighborType::Boundary(index) with the index
     /// of a periodic boundary condition.
     pub fn check_periodic_bc(&self) -> bool {
-        for face in self.mesh.faces.iter() {
-            if let NeighborType::Boundary(bc_index) = face.neighbor {
-                if self.equation_containers[face.get_zone(self)].boundary_conditions[bc_index].0
+        // println!("{:?}", self.mesh.periodic_pairs);
+        for i_f in 0..self.mesh.faces.len() {
+            if let NeighborType::Boundary(bc_index) = self.mesh.faces.neighbor[i_f] {
+                if self.equation_containers[self.get_face_zone(i_f)].boundary_conditions[bc_index].0
                     == "periodic"
                 {
                     return false;
@@ -247,6 +251,11 @@ impl<T: HasProperties> Problem<T> {
             }
         }
         true
+    }
+
+    /// Checks which zone of the mesh this face is in.
+    pub fn get_face_zone(&self, i_face: usize) -> usize {
+        self.mesh.cells.zone[self.mesh.faces.owner[i_face].0]
     }
 
     pub fn sum_conservation_variables(&self) -> Vec<DVector<f64>> {
@@ -284,18 +293,18 @@ impl<T: HasProperties> Problem<T> {
     pub fn setup_equations(&self, _t: &f64) -> DVector<f64> {
         // TODO : disable the "sourface flux equations" completely if they are all None so that it's faster
         let mut face_fluxes = Vec::with_capacity(self.mesh.faces.len());
-        for (i, face) in self.mesh.faces.iter().enumerate() {
+        for i_f in 0..self.mesh.faces.len() {
             let mut single_face_fluxes = Vec::with_capacity(
-                self.equation_containers[face.get_zone(self)]
+                self.equation_containers[self.get_face_zone(i_f)]
                     .equations
                     .len(),
             );
-            for eq in self.equation_containers[face.get_zone(self)]
+            for eq in self.equation_containers[self.get_face_zone(i_f)]
                 .equations
                 .iter()
             {
                 if let Some(eqn) = eq.flux {
-                    single_face_fluxes.push((eqn)(self, i));
+                    single_face_fluxes.push((eqn)(self, i_f));
                 }
             }
             face_fluxes.push(single_face_fluxes);
@@ -315,7 +324,7 @@ impl<T: HasProperties> Problem<T> {
                             .iter()
                             .map(|&i_face| {
                                 &face_fluxes[i_face][i_eq]
-                                    * if self.mesh.faces[i_face].owner.0 == i_cell {
+                                    * if self.mesh.faces.owner[i_face].0 == i_cell {
                                         1.0
                                     } else {
                                         -1.0
@@ -379,11 +388,11 @@ impl<T: HasProperties> Problem<T> {
         let mut A_owner = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
         let mut A_neighbor = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
         for i_face in 0..self.mesh.faces.len() {
-            let face = &self.mesh.faces[i_face];
+            let face = self.mesh.faces.get_face(i_face);
             let owner = face.owner.0;
             A_owner.push(i_face, owner, 1.0);
             // TODO : seems like a great place to put Dirichlet boundary conditions
-            match face.neighbor {
+            match *face.neighbor {
                 NeighborType::Internal(neighbor, _) => A_neighbor.push(i_face, neighbor, 1.0),
                 _ => {}
             };
@@ -400,9 +409,9 @@ impl<T: HasProperties> Problem<T> {
     pub fn prepare_linear_interpolation(&mut self) {
         let mut A = CooMatrix::new(self.mesh.faces.len(), self.mesh.cells.volume.len());
         for i_face in 0..self.mesh.faces.len() {
-            let face = &self.mesh.faces[i_face];
+            let face = &self.mesh.faces.get_face(i_face);
             let owner = face.owner;
-            let neighbor = match face.neighbor {
+            let neighbor = match *face.neighbor {
                 NeighborType::Internal(neighbor, distance) => (neighbor, distance),
                 _ => (owner.0, owner.1),
             };
@@ -465,13 +474,12 @@ impl<T: HasProperties> Problem<T> {
             }
             // at this point we have a list of neighbors.
             for &i_face in self.mesh.cells.faces[i_p].iter() {
-                let face = &self.mesh.faces[i_face];
                 // now for each face of the cell, we want to find two points (forward and backward) so that we can compute a slope
                 // the points are interpolated from a list of 3 cell centers and barycentric coordinates
                 let mut point_forward = None;
                 let mut point_backward = None;
                 // vector pointing from the owner center to the face center
-                let BiMij = face.center - self.mesh.cells.r[i_p];
+                let BiMij = self.mesh.faces.center[i_face] - self.mesh.cells.r[i_p];
                 // now we sort the list of neighbors in decreasing order of the value cos(BkBi, BiMij)
                 neighbors.sort_by(|&i, &j| {
                     let BkMij = self.mesh.cells.r[i] - self.mesh.cells.r[i_p];
@@ -491,7 +499,7 @@ impl<T: HasProperties> Problem<T> {
                     })
                     .count();
                 if points_are_collinear(
-                    &face.center,
+                    &self.mesh.faces.center[i_face],
                     &self.mesh.cells.r[i_p],
                     &self.mesh.cells.r[neighbors[0]],
                 ) {
@@ -515,7 +523,7 @@ impl<T: HasProperties> Problem<T> {
                         let plane_normal = (B2 - B1).cross(&(B3 - B1));
                         // compute the intersection of BiMij with the plane defined by the three points
                         if let Some(H) = line_plane_intersection(
-                            &face.center,
+                            &self.mesh.faces.center[i_face],
                             &self.mesh.cells.r[i_p],
                             &B1,
                             &plane_normal,
@@ -539,7 +547,7 @@ impl<T: HasProperties> Problem<T> {
                 neighbors.reverse();
                 let n_forward = neighbors.len() - n_back;
                 if points_are_collinear(
-                    &face.center,
+                    &self.mesh.faces.center[i_face],
                     &self.mesh.cells.r[i_p],
                     &self.mesh.cells.r[neighbors[0]],
                 ) {
@@ -563,7 +571,7 @@ impl<T: HasProperties> Problem<T> {
                         let plane_normal = (B2 - B1).cross(&(B3 - B1));
                         // compute the intersection of BiMij with the plane defined by the three points
                         if let Some(H) = line_plane_intersection(
-                            &face.center,
+                            &self.mesh.faces.center[i_face],
                             &self.mesh.cells.r[i_p],
                             &B1,
                             &plane_normal,
@@ -584,7 +592,7 @@ impl<T: HasProperties> Problem<T> {
                     }
                 }
                 // check if we are setting the "owner" side of the face or the "neighbor" side.
-                let matrix = if face.owner.0 == i_p {
+                let matrix = if self.mesh.faces.owner[i_face].0 == i_p {
                     &mut A_owner
                 } else {
                     &mut A_neighbor
@@ -606,7 +614,7 @@ impl<T: HasProperties> Problem<T> {
                         + Bgamma * (self.mesh.cells.r[B3] - Point3::origin());
                     // get the geometrical data needed for the interpolation
                     let distance = (F - B).norm();
-                    let to_face = (face.center - self.mesh.cells.r[i_p]).norm();
+                    let to_face = (self.mesh.faces.center[i_face] - self.mesh.cells.r[i_p]).norm();
                     // the value at the face is the value at the center times the slope times to_face.
                     // the slope is the difference between the forward and backward values divided by the distance.
                     matrix.push(i_face, i_p, 1.0);
@@ -626,16 +634,14 @@ impl<T: HasProperties> Problem<T> {
         // TODO : use a specialized enum instead of an Option
         self.face_owner_interpolation = Some(CsrMatrix::from(&A_owner));
         self.face_neighbor_interpolation = Some(CsrMatrix::from(&A_neighbor));
-        // TODO : this is a workaround beacuse I don't want to implement periodic BC correctly yet
+        // TODO : this is a workaround (first order) beacuse I don't want to implement periodic BC correctly yet
         for i_face in 0..self.mesh.faces.len() {
-            let face = &self.mesh.faces[i_face];
-            if let NeighborType::Internal(i_n, _) = face.neighbor {
+            if let NeighborType::Internal(i_n, _) = self.mesh.faces.neighbor[i_face] {
                 if let Some(neighbor_matrix) = &mut self.face_neighbor_interpolation {
                     if neighbor_matrix.row(i_face).nnz() == 0 {
                         // this side of the face is currently not interpolated despite connecting to a neighbor!
-                        // we perform a first order interpolation from the owner
-                        let owner = face.owner.0;
-                        A_neighbor.push(i_face, owner, 1.0);
+                        // we perform a first order interpolation from the neighbor
+                        A_neighbor.push(i_face, i_n, 1.0);
                     }
                 }
             }
@@ -652,26 +658,21 @@ impl<T: HasProperties> Problem<T> {
     pub fn neighbors(&self, i_cell: usize) -> Vec<NeighborReturn> {
         self.mesh.cells.faces[i_cell]
             .iter()
-            .map(|i_face| match self.mesh.faces[*i_face].neighbor {
+            .map(|&i_face| match self.mesh.faces.neighbor[i_face] {
                 NeighborType::Internal(i, n_distance) if i == i_cell => {
-                    let (i, o_distance) = self.mesh.faces[*i_face].owner;
-                    NeighborReturn::Internal(i, *i_face, o_distance + n_distance)
+                    let (i, o_distance) = self.mesh.faces.owner[i_face];
+                    NeighborReturn::Internal(i, i_face, o_distance + n_distance)
                 }
                 NeighborType::Internal(i, n_distance) => NeighborReturn::Internal(
                     i,
-                    *i_face,
-                    self.mesh.faces[*i_face].owner.1 + n_distance,
+                    i_face,
+                    self.mesh.faces.owner[i_face].1 + n_distance,
                 ),
                 NeighborType::Boundary(id) => {
                     let BoundaryCondition(name, values) = &self.equation_containers
                         [self.mesh.cells.zone[i_cell]]
                         .boundary_conditions[id];
-                    NeighborReturn::Boundary(
-                        name,
-                        *i_face,
-                        self.mesh.faces[*i_face].owner.1,
-                        values,
-                    )
+                    NeighborReturn::Boundary(name, i_face, self.mesh.faces.owner[i_face].1, values)
                 }
                 _ => NeighborReturn::Nil,
             })
@@ -684,16 +685,15 @@ impl<T: HasProperties> Problem<T> {
     /// - a boundary condition (name, some values)
     /// - Nil (no neighbor, should only be encountered in 2D or 1D meshes)
     pub fn neighbor(&self, i_face: usize) -> NeighborReturn {
-        match self.mesh.faces[i_face].neighbor {
+        match self.mesh.faces.neighbor[i_face] {
             NeighborType::Internal(_, n_distance) => {
-                let (i, o_distance) = self.mesh.faces[i_face].owner;
+                let (i, o_distance) = self.mesh.faces.owner[i_face];
                 NeighborReturn::Internal(i, i_face, o_distance + n_distance)
             }
             NeighborType::Boundary(id) => {
-                let BoundaryCondition(name, values) = &self.equation_containers
-                    [self.mesh.faces[i_face].get_zone(self)]
-                .boundary_conditions[id];
-                NeighborReturn::Boundary(name, i_face, self.mesh.faces[i_face].owner.1, values)
+                let BoundaryCondition(name, values) =
+                    &self.equation_containers[self.get_face_zone(i_face)].boundary_conditions[id];
+                NeighborReturn::Boundary(name, i_face, self.mesh.faces.owner[i_face].1, values)
             }
             _ => NeighborReturn::Nil,
         }

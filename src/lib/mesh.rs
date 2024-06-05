@@ -1,4 +1,4 @@
-use crate::computational_cell::{CellData, Face, NeighborType};
+use crate::computational_cell::{CellData, Face, FaceMut, Faces, NeighborType};
 use crate::geometry_utils::{polyhedron_center, polyhedron_volume};
 use nalgebra::{Point3, Vector3};
 use std::collections::HashSet;
@@ -10,16 +10,18 @@ use std::collections::HashSet;
 #[derive(Clone)]
 pub struct Mesh {
     pub vertices: Vec<Point3<f64>>,
-    pub faces: Vec<Face>,
+    pub faces: Faces,
     pub cells: CellData,
+    pub periodic_pairs: Vec<(usize, Option<usize>)>,
 }
 
 impl Mesh {
     pub fn new() -> Self {
         Mesh {
             vertices: Vec::new(),
-            faces: Vec::new(),
+            faces: Faces::new(),
             cells: CellData::default(),
+            periodic_pairs: Vec::new(),
         }
     }
 
@@ -37,6 +39,16 @@ impl Mesh {
             .rev()
             .position(|v| (v - r).norm() < f64::EPSILON)?;
         Some(self.vertices.len() - 1 - return_value)
+    }
+    /// Creates a new face from a list of point indices and initialize its basic geometrical properties.
+    /// The properties relating to the neighbour need to be initialized later.
+    pub fn add_face_from_vertices(&mut self, vertex_indices: &[usize]) -> usize {
+        let vertex_coorinates: &[Point3<f64>] = &vertex_indices
+            .iter()
+            .map(|i_vertex| self.vertices[*i_vertex])
+            .collect::<Vec<Point3<f64>>>();
+        self.faces
+            .add_from_vertices(vertex_coorinates, vertex_indices)
     }
 
     pub fn add_hex_cell(&mut self, r1: Point3<f64>, r2: Point3<f64>, zone: usize) -> usize {
@@ -128,28 +140,28 @@ impl Mesh {
         let mut cell_faces = Vec::with_capacity(6);
         for vertices in current_faces.iter() {
             let mut found = false;
-            for (index, face) in self.faces.iter_mut().enumerate() {
+            for i_f in 0..self.faces.len() {
+                let face = self.faces.get_face_mut(i_f);
                 // WARNING : this assumes that no crazy face with a different number of vertices exists
                 if face.vertices.iter().all(|p| vertices.contains(p)) {
-                    cell_faces.push(index);
-                    let face_distance = (face.center - cell_center).norm();
-                    face.neighbor = NeighborType::Internal(cell_index, face_distance);
+                    cell_faces.push(i_f);
+                    let face_distance = (*face.center - cell_center).norm();
+                    *face.neighbor = NeighborType::Internal(cell_index, face_distance);
                     found = true;
                     break;
                 }
             }
             if !found {
-                let mut face = Face::new(self, vertices);
-                let face_distance = (face.center - cell_center).norm();
+                let i_f = self.add_face_from_vertices(vertices);
+                let face_distance = (self.faces.center[i_f] - cell_center).norm();
                 // face normal points from the owner to the neighbour
-                face.owner = (cell_index, face_distance);
-                cell_faces.push(self.faces.len());
-                self.faces.push(face);
+                self.faces.owner[i_f] = (cell_index, face_distance);
+                cell_faces.push(i_f);
             }
         }
         // check if the faces are correctly oriented, meaning that the face normals point outwards of the owner and inwards of the neighbour
-        for i_face in cell_faces.iter() {
-            let face = &self.faces[*i_face];
+        for &i_face in cell_faces.iter() {
+            let face = self.faces.get_face(i_face);
             let to_face = face.center - cell_center;
             if cell_index == face.owner.0 {
                 if to_face.dot(&face.normal) < 0. {
@@ -171,7 +183,7 @@ impl Mesh {
     pub fn new_cell(&mut self, faces: Vec<usize>, zone: usize) {
         let mut vertex_indices: Vec<usize> = faces
             .iter()
-            .flat_map(|i_face| self.faces[*i_face].vertices.clone())
+            .flat_map(|&i_face| self.faces.vertices[i_face].clone())
             .collect();
         vertex_indices.sort();
         vertex_indices.dedup();
@@ -189,12 +201,23 @@ impl Mesh {
         point: &Point3<f64>,
         normal: &Vector3<f64>,
         cell_index: usize,
-    ) -> Option<&mut Face> {
+    ) -> Option<FaceMut> {
+        match self.get_face_id_on_plane(point, normal, cell_index) {
+            Some(i_f) => Some(self.faces.get_face_mut(i_f)),
+            None => None,
+        }
+    }
+
+    pub fn get_face_id_on_plane(
+        &mut self,
+        point: &Point3<f64>,
+        normal: &Vector3<f64>,
+        cell_index: usize,
+    ) -> Option<usize> {
         // find the face that is on the plane defined by the point and normal
-        for face_index in self.cells.faces[cell_index].iter() {
-            let face = &self.faces[*face_index];
-            if (face.center - point).dot(normal).abs() < f64::EPSILON {
-                return Some(&mut self.faces[*face_index]);
+        for &i_f in self.cells.faces[cell_index].iter() {
+            if (self.faces.center[i_f] - point).dot(normal).abs() < f64::EPSILON {
+                return Some(i_f);
             }
         }
         None // Return None if no face is found
@@ -204,9 +227,8 @@ impl Mesh {
         // returns the points of the faces
         faces
             .iter()
-            .map(|i_face| {
-                self.faces[*i_face]
-                    .vertices
+            .map(|&i_face| {
+                self.faces.vertices[i_face]
                     .iter()
                     .map(|i_vertex| self.vertices[*i_vertex])
                     .collect::<Vec<Point3<f64>>>()
@@ -218,7 +240,7 @@ impl Mesh {
     pub fn cell_vertices(&self, i_cell: usize) -> HashSet<usize> {
         self.cells.faces[i_cell]
             .iter()
-            .flat_map(|i_face| self.faces[*i_face].vertices.clone())
+            .flat_map(|&i_face| self.faces.vertices[i_face].clone())
             .collect::<HashSet<usize>>()
     }
 }
@@ -244,10 +266,10 @@ mod tests {
         assert_eq!(mesh.faces.len(), 6);
         assert_eq!(mesh.cells.faces[0].len(), 6);
         mesh.cells.faces[0].iter().for_each(|i_face| {
-            let face = &mesh.faces[*i_face];
+            let face = mesh.faces.get_face(*i_face);
             assert_eq!(face.owner.0, 0);
             assert_eq!(face.owner.1, 0.5);
-            assert_eq!(face.area, 1.0);
+            assert_eq!(*face.area, 1.0);
             // check that the face is a convex polygon with sorted vertices
             assert!(crate::geometry_utils::check_polygon_convexity(
                 face.vertices
@@ -258,7 +280,7 @@ mod tests {
             ));
             // check that any vector from the center to the vertices is normal to the face normal
             for i in 0..face.vertices.len() {
-                let v = &mesh.vertices[face.vertices[i]] - &face.center;
+                let v = &mesh.vertices[face.vertices[i]] - face.center;
                 assert!(v.dot(&face.normal).abs() < f64::EPSILON);
             }
             // check that the normal is pointing outwards of the cell
