@@ -4,7 +4,7 @@ use crate::equation_container::EquationContainer;
 use crate::geometry_utils::points_are_collinear;
 use crate::mesh::Mesh;
 use indicatif::ProgressBar;
-use nalgebra::{DVector, Point3, Vector3};
+use nalgebra::{DVector, DVectorSlice, Point3, Vector3};
 use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
 use std::error::Error;
 use std::fs::File;
@@ -287,7 +287,13 @@ impl<T: HasProperties> Problem<T> {
         x
     }
 
-    pub fn setup_equations(&self, _t: &f64) -> DVector<f64> {
+    pub fn setup_equations_in_place(&self, _t: f64, y: &mut DVector<f64>) {
+        assert_eq!(
+            y.len(),
+            self.n_eq(),
+            "Dimension mismatch in setup_equations_in_place"
+        );
+        y.fill(0.0);
         // TODO : disable the "sourface flux equations" completely if they are all None so that it's faster
         let mut face_fluxes = Vec::with_capacity(self.mesh.faces.len());
         for i_f in 0..self.mesh.faces.len() {
@@ -306,7 +312,6 @@ impl<T: HasProperties> Problem<T> {
             }
             face_fluxes.push(single_face_fluxes);
         }
-        let mut y: DVector<f64> = DVector::zeros(self.n_eq());
         let mut i = 0;
         for layer in self.equation_containers.iter() {
             for &i_cell in layer.cell_indices.iter() {
@@ -334,6 +339,11 @@ impl<T: HasProperties> Problem<T> {
                 }
             }
         }
+    }
+
+    pub fn setup_equations(&self, _t: f64) -> DVector<f64> {
+        let mut y: DVector<f64> = DVector::zeros(self.n_eq());
+        self.setup_equations_in_place(_t, &mut y);
         y
     }
 
