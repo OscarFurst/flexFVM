@@ -4,7 +4,7 @@ use crate::geometry_utils::{
 };
 use itertools::Itertools;
 use nalgebra::{Point3, Vector3};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// The mesh owns all geometrical features:
 /// - vertices: points in space at the corners of computational cells
@@ -15,7 +15,8 @@ pub struct Mesh {
     pub vertices: Vec<Point3<f64>>,
     pub faces: Faces,
     pub cells: CellData,
-    pub periodic_pairs: Vec<(usize, Option<usize>)>,
+    pub periodic_pairs: HashMap<usize, usize>,
+    pub periodic_unpaired: HashSet<usize>,
     // optional, needs to be initialized with "collect_vertex_cells" before use
     pub vertex_cells: Vec<Vec<usize>>,
 }
@@ -26,7 +27,8 @@ impl Mesh {
             vertices: Vec::new(),
             faces: Faces::new(),
             cells: CellData::default(),
-            periodic_pairs: Vec::new(),
+            periodic_pairs: HashMap::new(),
+            periodic_unpaired: HashSet::new(),
             vertex_cells: Vec::new(),
         }
     }

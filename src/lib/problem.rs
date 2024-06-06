@@ -3,8 +3,9 @@ use crate::equation::{self, BoundaryCondition};
 use crate::equation_container::EquationContainer;
 use crate::geometry_utils::points_are_collinear;
 use crate::mesh::Mesh;
+use core::panic;
 use indicatif::ProgressBar;
-use nalgebra::{DVector, DVectorSlice, Point3, Vector3};
+use nalgebra::{DVector, Point3, Vector3};
 use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
 use std::error::Error;
 use std::fs::File;
@@ -26,6 +27,8 @@ pub struct Problem<T: HasProperties> {
     pub face_neighbor_properties: T,
     pub face_neighbor_interpolation: Option<CsrMatrix<f64>>,
     pub equation_containers: Vec<EquationContainer<T>>,
+    // 2D (i_cell, i_eq) array which provides the starting index of equation i_eq of cell i_cell
+    equation_positions: Vec<Vec<usize>>,
 }
 
 impl<T: HasProperties> Problem<T> {
@@ -38,6 +41,7 @@ impl<T: HasProperties> Problem<T> {
             face_neighbor_properties: T::new(0),
             face_neighbor_interpolation: Option::None,
             equation_containers: Vec::new(),
+            equation_positions: Vec::new(),
         }
     }
 
@@ -176,42 +180,33 @@ impl<T: HasProperties> Problem<T> {
                 "periodic" => {
                     // search for the other face with the same boundary condition
                     let mut found_twin = false;
-                    if self.mesh.periodic_pairs.len() > 0 {
+                    if self.mesh.periodic_unpaired.len() > 0 {
                         let twin_direction = Vector3::new(values[0], values[1], values[2]);
-                        for i in 0..self.mesh.periodic_pairs.len() {
-                            let i_f = self.mesh.periodic_pairs[i].0;
-                            if let NeighborType::Boundary(face_bc_index) =
-                                self.mesh.faces.neighbor[i_f]
+                        for &i_f in self.mesh.periodic_unpaired.clone().iter() {
+                            // we found another face with a periodic BC, now we need to check if it is the twin face
+                            let face = self.mesh.faces.get_face_mut(i_f);
+                            if (*face.center - face_center).cross(&twin_direction).norm()
+                                < f64::EPSILON
                             {
-                                if self.equation_containers[self.get_face_zone(i_f)]
-                                    .boundary_conditions[face_bc_index]
-                                    .0
-                                    == "periodic"
-                                {
-                                    // we found another face with a periodic BC, now we need to check if it is the twin face
-                                    let face = self.mesh.faces.get_face_mut(i_f);
-                                    if (*face.center - face_center).cross(&twin_direction).norm()
-                                        < f64::EPSILON
-                                    {
-                                        found_twin = true;
-                                        self.mesh.periodic_pairs[i].1 = Some(i_f);
-                                        // in this case we have to set up two faces instead of jsut one !
-                                        *face.neighbor = NeighborType::Internal(
-                                            cell_index,
-                                            (*face.center - self.mesh.cells.r[cell_index]).norm(),
-                                        );
-                                        neighb = NeighborType::Internal(
-                                            face.owner.0,
-                                            (self.mesh.cells.r[face.owner.0] - *face.center).norm(),
-                                        );
-                                        break;
-                                    }
-                                }
+                                found_twin = true;
+                                self.mesh.periodic_unpaired.remove(&i_f);
+                                self.mesh.periodic_pairs.insert(face_id, i_f);
+                                self.mesh.periodic_pairs.insert(i_f, face_id);
+                                // in this case we have to set up two faces instead of jsut one !
+                                *face.neighbor = NeighborType::Internal(
+                                    cell_index,
+                                    (*face.center - self.mesh.cells.r[cell_index]).norm(),
+                                );
+                                neighb = NeighborType::Internal(
+                                    face.owner.0,
+                                    (self.mesh.cells.r[face.owner.0] - *face.center).norm(),
+                                );
+                                break;
                             }
                         }
                     }
                     if !found_twin {
-                        self.mesh.periodic_pairs.push((face_id, None));
+                        self.mesh.periodic_unpaired.insert(face_id);
                         neighb = NeighborType::Boundary(*index);
                     }
                 }
@@ -237,7 +232,10 @@ impl<T: HasProperties> Problem<T> {
     /// no face should have a NeighborType::Boundary(index) with the index
     /// of a periodic boundary condition.
     pub fn check_periodic_bc(&self) -> bool {
-        // println!("{:?}", self.mesh.periodic_pairs);
+        if self.mesh.periodic_unpaired.len() > 0 {
+            println!("Some periodic boundary conditions were not paired.");
+            return false;
+        }
         for i_f in 0..self.mesh.faces.len() {
             if let NeighborType::Boundary(bc_index) = self.mesh.faces.neighbor[i_f] {
                 if self.equation_containers[self.get_face_zone(i_f)].boundary_conditions[bc_index].0
@@ -287,53 +285,82 @@ impl<T: HasProperties> Problem<T> {
         x
     }
 
+    /// Writes where to find the index of the first entry of equation i_eq for cell i_cell in the state vector.
+    /// The result is written to "equation_positions".
+    /// This is used to speed up the computation of the equations when using face fluxes.
+    // TODO : this should not be public, it should be called by the problem itself at some point
+    pub fn set_equation_positions(&mut self) {
+        self.equation_positions.resize(self.n_cells(), Vec::new());
+        let mut i = 0;
+        for layer in self.equation_containers.iter() {
+            for &i_cell in layer.cell_indices.iter() {
+                for eq in layer.equations.iter() {
+                    self.equation_positions[i_cell].push(i);
+                    i += eq.dimension;
+                }
+            }
+        }
+    }
+
     pub fn setup_equations_in_place(&self, _t: f64, y: &mut DVector<f64>) {
         assert_eq!(
             y.len(),
             self.n_eq(),
             "Dimension mismatch in setup_equations_in_place"
         );
+        if self.equation_positions.is_empty() {
+            panic!("Equation positions not set up");
+        }
         y.fill(0.0);
         // TODO : disable the "surface flux equations" completely if they are all None so that it's faster
-        let mut face_fluxes = Vec::with_capacity(self.mesh.faces.len());
+        // TODO : the following lines are a test, to be improved!!
+        let max_equation_dimension = self
+            .equation_containers
+            .iter()
+            .map(|layer| layer.equations.iter().map(|eq| eq.dimension).sum::<usize>())
+            .max()
+            .unwrap();
+        let mut single_face_fluxes = DVector::zeros(max_equation_dimension);
+        // end of test, to be improved
         for i_f in 0..self.mesh.faces.len() {
-            let mut single_face_fluxes = Vec::with_capacity(
-                self.equation_containers[self.get_face_zone(i_f)]
-                    .equations
-                    .len(),
-            );
-            for eq in self.equation_containers[self.get_face_zone(i_f)]
+            for (i_eq, eq) in self.equation_containers[self.get_face_zone(i_f)]
                 .equations
                 .iter()
+                .enumerate()
             {
                 if let Some(eqn) = eq.flux {
-                    single_face_fluxes.push((eqn)(self, i_f));
+                    single_face_fluxes.fill(0.0);
+                    let mut part_of_vec = single_face_fluxes.rows_mut(0, eq.dimension);
+                    part_of_vec += (eqn)(self, i_f);
+                    // I really don't know what the most performant way to do this is.
+                    // TODO : this looks terrible.
+                    let i_o = self.mesh.faces.owner[i_f].0;
+                    if let NeighborType::Internal(i_n, _) = self.mesh.faces.neighbor[i_f] {
+                        if self.mesh.periodic_pairs.contains_key(&i_f) {
+                            for i in 0..eq.dimension {
+                                y[self.equation_positions[i_o][i_eq] + i] += part_of_vec[i];
+                            }
+                        } else {
+                            for i in 0..eq.dimension {
+                                y[self.equation_positions[i_o][i_eq] + i] += part_of_vec[i];
+                                y[self.equation_positions[i_n][i_eq] + i] -= part_of_vec[i];
+                            }
+                        }
+                    } else {
+                        for i in 0..eq.dimension {
+                            y[self.equation_positions[i_o][i_eq] + i] += part_of_vec[i];
+                        }
+                    }
                 }
             }
-            face_fluxes.push(single_face_fluxes);
         }
         let mut i = 0;
         for layer in self.equation_containers.iter() {
             for &i_cell in layer.cell_indices.iter() {
-                for (i_eq, eq) in layer.equations.iter().enumerate() {
-                    let mut row = y.rows_mut(i, eq.dimension);
+                for eq in layer.equations.iter() {
                     if let Some(eqn) = eq.source {
+                        let mut row = y.rows_mut(i, eq.dimension);
                         row += &(eqn)(self, i_cell);
-                    }
-                    if matches!(eq.flux, Some(_)) {
-                        // obviously a function was defined for surface fluxes
-                        let from_faces = self.mesh.cells.faces[i_cell]
-                            .iter()
-                            .map(|&i_face| {
-                                &face_fluxes[i_face][i_eq]
-                                    * if self.mesh.faces.owner[i_face].0 == i_cell {
-                                        1.0
-                                    } else {
-                                        -1.0
-                                    }
-                            })
-                            .sum::<DVector<f64>>();
-                        row += from_faces;
                     }
                     i += eq.dimension;
                 }

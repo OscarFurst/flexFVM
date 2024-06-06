@@ -31,6 +31,7 @@ pub fn solve<T: HasProperties, S: SolverStrategy>(
     output_args: SolverOutputArgs,
 ) -> Problem<T> {
     let mut problem = initial_problem.clone();
+    problem.set_equation_positions();
     let mut t = 0.;
     let mut it = 0;
 
