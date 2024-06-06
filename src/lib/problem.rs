@@ -499,8 +499,9 @@ impl<T: HasProperties> Problem<T> {
                 good_faces, total_faces
             ));
             // first we look for all the cells sharing at least one vertex with the cell i_cell
-            // TODO : this does not account for periodic boundary conditions in which the cells share neither vertices nor faces!!!
-            let mut neighbors = self.mesh.extended_neighborhood(i_p);
+            // TODO : clean up this messy data type!
+            // the tuple contains the index of the cell and a shift vector to be added to the cell center
+            let mut neighbors = self.mesh.extended_neighborhood_periodic(i_p);
             // at this point we have a list of neighbors.
             for &i_face in self.mesh.cells.faces[i_p].iter() {
                 // now for each face of the cell, we want to find two points (forward and backward) so that we can compute a slope
@@ -512,10 +513,10 @@ impl<T: HasProperties> Problem<T> {
                 let Mij = &self.mesh.faces.center[i_face];
                 let BiMij = Mij - Bi;
                 // now we sort the list of neighbors in decreasing order of the value cos(BkBi, BiMij)
-                neighbors.sort_by(|&i, &j| {
-                    let BkMij = self.mesh.cells.r[i] - Bi;
+                neighbors.sort_by(|&(i, i_s), &(j, j_s)| {
+                    let BkMij = self.mesh.cells.r[i]+i_s - Bi;
                     let cos_i = BiMij.dot(&BkMij) / (BiMij.norm() * BkMij.norm());
-                    let BkMij = self.mesh.cells.r[j] - Bi;
+                    let BkMij = self.mesh.cells.r[j]+j_s - Bi;
                     let cos_j = BiMij.dot(&BkMij) / (BiMij.norm() * BkMij.norm());
                     cos_j.partial_cmp(&cos_i).expect("Failed to compare floats when sorting cell neighbors during MUSCL interpolation")
                 });
@@ -523,13 +524,18 @@ impl<T: HasProperties> Problem<T> {
                 // find the number of elemets for which cos(BkBi, BiMij) is positive
                 let n_back = neighbors
                     .iter()
-                    .take_while(|&&i| {
-                        let BkMij = self.mesh.cells.r[i] - Bi;
+                    .take_while(|&&(i, i_s)| {
+                        let BkMij = self.mesh.cells.r[i] + i_s - Bi;
                         BiMij.dot(&BkMij) > 0.0
                     })
                     .count();
-                if points_are_collinear(Mij, Bi, &self.mesh.cells.r[neighbors[0]]) {
-                    point_backward = Some([(neighbors[0], 1.0), (0, 0.0), (0, 0.0)]);
+                let first_neighbor_position = self.mesh.cells.r[neighbors[0].0] + neighbors[0].1;
+                if points_are_collinear(Mij, Bi, &first_neighbor_position) {
+                    point_backward = Some([
+                        (neighbors[0], 1.0),
+                        ((0, Vector3::zeros()), 0.0),
+                        ((0, Vector3::zeros()), 0.0),
+                    ]);
                 } else if n_back >= 3 {
                     // we try combinations of 3 neighbors sorted after the sum of their indices
                     point_backward = self
@@ -539,8 +545,13 @@ impl<T: HasProperties> Problem<T> {
                 // find the number of elemets for which cos(BkBi, BiMij) is positive
                 neighbors.reverse();
                 let n_forward = neighbors.len() - n_back;
-                if points_are_collinear(Mij, Bi, &self.mesh.cells.r[neighbors[0]]) {
-                    point_forward = Some([(neighbors[0], 1.0), (0, 0.0), (0, 0.0)]);
+                let first_neighbor_position = self.mesh.cells.r[neighbors[0].0] + neighbors[0].1;
+                if points_are_collinear(Mij, Bi, &first_neighbor_position) {
+                    point_forward = Some([
+                        (neighbors[0], 1.0),
+                        ((0, Vector3::zeros()), 0.0),
+                        ((0, Vector3::zeros()), 0.0),
+                    ]);
                 } else if n_forward >= 3 {
                     // we try combinations of 3 neighbors sorted after the sum of their indices
                     point_forward = self
@@ -563,25 +574,25 @@ impl<T: HasProperties> Problem<T> {
                     // reconstruct the position of the forward and backward points
                     // this looks stupid because we need to transform points into vectors
                     let F = origin
-                        + Falpha * (self.mesh.cells.r[F1] - origin)
-                        + Fbeta * (self.mesh.cells.r[F2] - origin)
-                        + Fgamma * (self.mesh.cells.r[F3] - origin);
+                        + Falpha * (self.mesh.cells.r[F1.0] + F1.1 - origin)
+                        + Fbeta * (self.mesh.cells.r[F2.0] + F2.1 - origin)
+                        + Fgamma * (self.mesh.cells.r[F3.0] + F3.1 - origin);
                     let B = origin
-                        + Balpha * (self.mesh.cells.r[B1] - origin)
-                        + Bbeta * (self.mesh.cells.r[B2] - origin)
-                        + Bgamma * (self.mesh.cells.r[B3] - origin);
+                        + Balpha * (self.mesh.cells.r[B1.0] + B1.1 - origin)
+                        + Bbeta * (self.mesh.cells.r[B2.0] + B2.1 - origin)
+                        + Bgamma * (self.mesh.cells.r[B3.0] + B3.1 - origin);
                     // get the geometrical data needed for the interpolation
                     let distance = (F - B).norm();
                     let to_face = (Mij - Bi).norm();
                     // the value at the face is the value at the center times the slope times to_face.
                     // the slope is the difference between the forward and backward values divided by the distance.
                     matrix.push(i_face, i_p, 1.0);
-                    matrix.push(i_face, F1, -to_face * Falpha / distance);
-                    matrix.push(i_face, F2, -to_face * Fbeta / distance);
-                    matrix.push(i_face, F3, -to_face * Fgamma / distance);
-                    matrix.push(i_face, B1, to_face * Balpha / distance);
-                    matrix.push(i_face, B2, to_face * Bbeta / distance);
-                    matrix.push(i_face, B3, to_face * Bgamma / distance);
+                    matrix.push(i_face, F1.0, -to_face * Falpha / distance);
+                    matrix.push(i_face, F2.0, -to_face * Fbeta / distance);
+                    matrix.push(i_face, F3.0, -to_face * Fgamma / distance);
+                    matrix.push(i_face, B1.0, to_face * Balpha / distance);
+                    matrix.push(i_face, B2.0, to_face * Bbeta / distance);
+                    matrix.push(i_face, B3.0, to_face * Bgamma / distance);
                 } else {
                     // first order interpolation
                     matrix.push(i_face, i_p, 1.0);

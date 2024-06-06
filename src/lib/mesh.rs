@@ -284,19 +284,47 @@ impl Mesh {
         neighbor_set.into_iter().collect()
     }
 
+    // TODO : maybe the return type should be a struct?
+    pub fn extended_neighborhood_periodic(&self, i_cell: usize) -> Vec<(usize, Vector3<f64>)> {
+        // first, same as above
+        let mut neighbor_set = HashMap::new();
+        let cell_vertices = &self.cells.vertices[i_cell];
+        for &i_vertex in cell_vertices.iter() {
+            for &i_neighbor in self.vertex_cells[i_vertex].iter() {
+                neighbor_set.insert(i_neighbor, Vector3::zeros());
+            }
+        }
+        // then, we add the periodic neighbors
+        for &i_f in self.cells.faces[i_cell].iter() {
+            if let Some(&i_nf) = self.periodic_pairs.get(&i_f) {
+                // all the cells that share vertices with i_nf are periodic neighbors!
+                // adding the shift to the neighbor coordinates displaces the neighbor to the periodic position
+                let shift = self.faces.center[i_f] - self.faces.center[i_nf];
+                for &i_vertex in self.faces.vertices[i_nf].iter() {
+                    for &i_neighbor in self.vertex_cells[i_vertex].iter() {
+                        neighbor_set.insert(i_neighbor, shift);
+                    }
+                }
+            }
+        }
+        neighbor_set.remove(&i_cell);
+        neighbor_set.into_iter().collect()
+    }
+
     /// interpolates a point "P" on the line between "Mij" and "Bi" using barycentric interpolation
     /// of points in the sorted list of neighbors. The first points in the list are prioritized,
     /// and if more than 3 points are provided, the subsequent points are only used if the line does not
     /// intersect the triangle defined by the first 3 points.
-    /// The result is a list of tuples with the index of the points used for interpolation and their corresponding
-    /// barycentric coordinates.
+    /// The result is a list of tuples ((i_r, shift), coord) with the index of the points used for interpolation,
+    /// their periodic shift (zero for "normal" points) and their corresponding barycentric coordinates.
     #[allow(non_snake_case)]
     pub fn best_barycentric_interpolation(
         &self,
         Mij: &Point3<f64>,
         Bi: &Point3<f64>,
-        sorted_list_of_neighbors: &[usize],
-    ) -> Option<[(usize, f64); 3]> {
+        // the Vector3 in the list of neighbors is the shift to apply to the neighbor to get the periodic position
+        sorted_list_of_neighbors: &[(usize, Vector3<f64>)],
+    ) -> Option<[((usize, Vector3<f64>), f64); 3]> {
         for list in sorted_list_of_neighbors
             .iter()
             .enumerate()
@@ -309,14 +337,15 @@ impl Mesh {
                 )
             })
         {
-            let B1 = &self.cells.r[*list[0].1];
-            let B2 = &self.cells.r[*list[1].1];
-            let B3 = &self.cells.r[*list[2].1];
+            // TODO : clean up the "list" situation
+            let B1 = self.cells.r[list[0].1 .0] + list[0].1 .1;
+            let B2 = self.cells.r[list[1].1 .0] + list[1].1 .1;
+            let B3 = self.cells.r[list[2].1 .0] + list[2].1 .1;
             let plane_normal = (B2 - B1).cross(&(B3 - B1));
             // compute the intersection of BiMij with the plane defined by the three points
-            if let Some(H) = line_plane_intersection(Mij, Bi, B1, &plane_normal) {
+            if let Some(H) = line_plane_intersection(Mij, Bi, &B1, &plane_normal) {
                 // we compute the barycentric coordinates of H in the triangle B1B2B3
-                let (alpha, beta, gamma) = barycentric_coordinates(B1, B2, B3, &H);
+                let (alpha, beta, gamma) = barycentric_coordinates(&B1, &B2, &B3, &H);
                 // check if the point is in the triangle
                 if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
                     // we have found the point H, now we can interpolate the properties of the point
