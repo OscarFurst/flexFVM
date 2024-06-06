@@ -1,3 +1,4 @@
+use flex_fvm::solver::SolverStrategy;
 use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
 use nalgebra::{dvector, DVector, Point3, RowDVector};
 use std::fmt;
@@ -14,7 +15,7 @@ fn main() {
         &initial_mesh,
         0.01,
         0.0000002,
-        solver::euler_explicit::<Properties>,
+        solver::EulerExplicitSolver::new(&initial_mesh),
         output_args,
     );
 }
@@ -74,7 +75,8 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let heat_diffusion_equations = Equation {
         get: Properties::get_T,
         lhs: Properties::update_T,
-        source: heat_diffusion,
+        source: Some(heat_diffusion),
+        flux: None,
         dimension: 1,
     };
     // define the boundary conditions
@@ -129,14 +131,14 @@ pub fn heat_diffusion(problem: &problem::Problem<Properties>, i_p: usize) -> DVe
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             problem::NeighborReturn::Internal(i_n, i_f, distance) => {
-                let f = &problem.mesh.faces[i_f];
+                let f = &problem.mesh.faces.get_face(i_f);
                 flux -= problem.cell_properties.lambda[i_p]
                     * (problem.cell_properties.T[i_p] - problem.cell_properties.T[i_n])
                     / distance
                     * f.area;
             }
             problem::NeighborReturn::Boundary(name, i_f, distance, values) => {
-                let f = &problem.mesh.faces[i_f];
+                let f = &problem.mesh.faces.get_face(i_f);
                 match name {
                     "dirichlet" => {
                         flux -= problem.cell_properties.lambda[i_p]

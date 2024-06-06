@@ -1,3 +1,4 @@
+use flex_fvm::solver::SolverStrategy;
 use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
 use nalgebra::{dvector, DVector, Matrix3xX, Point3, RowDVector, Vector3};
 
@@ -13,7 +14,7 @@ fn main() {
         &initial_mesh,
         50.,
         0.0001,
-        solver::euler_explicit::<Properties>,
+        solver::EulerExplicitSolver::new(&initial_mesh),
         output_args,
     );
 }
@@ -83,7 +84,8 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let heat_diffusion_equations = Equation {
         get: Properties::get_u,
         lhs: Properties::update_u,
-        source: burgers_equation,
+        source: Some(burgers_equation),
+        flux: None,
         dimension: 3,
     };
     // define the boundary conditions
@@ -136,7 +138,7 @@ pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> D
         match neighbor {
             // flux term for a normal neighbor
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
-                let f = &problem.mesh.faces[i_f];
+                let f = &problem.mesh.faces.get_face(i_f);
                 let i_up = problem.cell_properties.upwind(i_p, i_n, f.out_normal(i_p));
                 let u_upwind = problem.cell_properties.u.column(i_up);
                 advective_flux -= 0.5 * u_upwind.dot(&u_upwind) * f.area * f.out_normal(i_p);
