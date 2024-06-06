@@ -18,8 +18,8 @@ pub struct BoundaryCondition(pub String, pub DVector<f64>);
 pub struct Equation<T: HasProperties> {
     pub get: fn(&T, usize) -> DVector<f64>,
     pub lhs: fn(&mut T, usize, &[f64]),
-    pub source: Option<fn(&crate::problem::Problem<T>, usize) -> DVector<f64>>,
-    pub flux: Option<fn(&crate::problem::Problem<T>, usize) -> DVector<f64>>,
+    pub source: Option<fn(&crate::problem::Problem<T>, usize, &mut DVector<f64>)>,
+    pub flux: Option<fn(&crate::problem::Problem<T>, usize, &mut DVector<f64>)>,
     pub dimension: usize,
 }
 

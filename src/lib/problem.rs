@@ -320,7 +320,7 @@ impl<T: HasProperties> Problem<T> {
             .map(|layer| layer.equations.iter().map(|eq| eq.dimension).sum::<usize>())
             .max()
             .unwrap();
-        let mut single_face_fluxes = DVector::zeros(max_equation_dimension);
+        let mut result_buffer = DVector::zeros(max_equation_dimension);
         // end of test, to be improved
         for i_f in 0..self.mesh.faces.len() {
             for (i_eq, eq) in self.equation_containers[self.get_face_zone(i_f)]
@@ -329,26 +329,26 @@ impl<T: HasProperties> Problem<T> {
                 .enumerate()
             {
                 if let Some(eqn) = eq.flux {
-                    single_face_fluxes.fill(0.0);
-                    let mut part_of_vec = single_face_fluxes.rows_mut(0, eq.dimension);
-                    part_of_vec += (eqn)(self, i_f);
+                    result_buffer.fill(0.0);
+                    (eqn)(self, i_f, &mut result_buffer);
                     // I really don't know what the most performant way to do this is.
                     // TODO : this looks terrible.
                     let i_o = self.mesh.faces.owner[i_f].0;
                     if let NeighborType::Internal(i_n, _) = self.mesh.faces.neighbor[i_f] {
+                        // the "contains_key" is slower than I would like it to be...
                         if self.mesh.periodic_pairs.contains_key(&i_f) {
                             for i in 0..eq.dimension {
-                                y[self.equation_positions[i_o][i_eq] + i] += part_of_vec[i];
+                                y[self.equation_positions[i_o][i_eq] + i] += result_buffer[i];
                             }
                         } else {
                             for i in 0..eq.dimension {
-                                y[self.equation_positions[i_o][i_eq] + i] += part_of_vec[i];
-                                y[self.equation_positions[i_n][i_eq] + i] -= part_of_vec[i];
+                                y[self.equation_positions[i_o][i_eq] + i] += result_buffer[i];
+                                y[self.equation_positions[i_n][i_eq] + i] -= result_buffer[i];
                             }
                         }
                     } else {
                         for i in 0..eq.dimension {
-                            y[self.equation_positions[i_o][i_eq] + i] += part_of_vec[i];
+                            y[self.equation_positions[i_o][i_eq] + i] += result_buffer[i];
                         }
                     }
                 }
@@ -359,8 +359,13 @@ impl<T: HasProperties> Problem<T> {
             for &i_cell in layer.cell_indices.iter() {
                 for eq in layer.equations.iter() {
                     if let Some(eqn) = eq.source {
-                        let mut row = y.rows_mut(i, eq.dimension);
-                        row += &(eqn)(self, i_cell);
+                        // get the source terms
+                        result_buffer.fill(0.0);
+                        (eqn)(self, i_cell, &mut result_buffer);
+                        // put them in the right part of the derivative vector
+                        for ii in 0..eq.dimension {
+                            y[i + ii] += result_buffer[ii];
+                        }
                     }
                     i += eq.dimension;
                 }

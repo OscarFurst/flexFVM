@@ -131,9 +131,13 @@ impl Properties {
     }
 }
 
-pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
+pub fn burgers_equation(
+    problem: &problem::Problem<Properties>,
+    i_p: usize,
+    output: &mut DVector<f64>,
+) {
     // du/dt + div(u^2)/2 = 0
-    let mut advective_flux = dvector![0., 0., 0.];
+    let mut advective_flux = output.rows_mut(0, 3);
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             // flux term for a normal neighbor
@@ -156,5 +160,5 @@ pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> D
             }
         }
     }
-    advective_flux / problem.mesh.cells.volume[i_p]
+    advective_flux /= problem.mesh.cells.volume[i_p];
 }

@@ -3,11 +3,6 @@ name = "flex_fvm"
 version = "0.1.0"
 edition = "2021"
 
-[profile.profiling]
-inherits = "release"
-debug = 2
-split-debuginfo = "packed"
-
 [profile.release]
 debug = true
 
