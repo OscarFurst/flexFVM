@@ -1,6 +1,6 @@
+use flex_fvm::solver::SolverStrategy;
 use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
 use nalgebra::{dvector, DVector, Matrix3xX, Point3, RowDVector, Vector3};
-use std::fmt;
 
 fn main() {
     let initial_mesh = create_mesh();
@@ -14,7 +14,7 @@ fn main() {
         &initial_mesh,
         50.,
         0.0001,
-        solver::euler_explicit::<Properties>,
+        solver::EulerExplicitSolver::new(&initial_mesh),
         output_args,
     );
 }
@@ -31,22 +31,19 @@ pub struct Properties {
     pub nu: RowDVector<f64>, // kg/m3
 }
 
-impl fmt::Debug for Properties {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.u)
-    }
-}
-
-impl Default for Properties {
-    fn default() -> Self {
+impl HasProperties for Properties {
+    fn new(size: usize) -> Self {
+        if size == 0 {
+            return Properties {
+                u: Matrix3xX::from_vec(vec![]),
+                nu: RowDVector::from_vec(vec![]),
+            };
+        }
         Properties {
-            u: Matrix3xX::from_vec(vec![]),
-            nu: RowDVector::from_vec(vec![]),
+            u: Matrix3xX::from_element(size, 0.),
+            nu: RowDVector::from_element(size, 0.),
         }
     }
-}
-
-impl HasProperties for Properties {
     fn export(&self) -> Vec<(String, Vec<f64>)> {
         vec![
             (
@@ -87,7 +84,8 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let heat_diffusion_equations = Equation {
         get: Properties::get_u,
         lhs: Properties::update_u,
-        rhs: burgers_equation,
+        source: Some(burgers_equation),
+        flux: None,
         dimension: 3,
     };
     // define the boundary conditions
@@ -133,14 +131,18 @@ impl Properties {
     }
 }
 
-pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
+pub fn burgers_equation(
+    problem: &problem::Problem<Properties>,
+    i_p: usize,
+    output: &mut DVector<f64>,
+) {
     // du/dt + div(u^2)/2 = 0
-    let mut advective_flux = dvector![0., 0., 0.];
+    let mut advective_flux = output.rows_mut(0, 3);
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             // flux term for a normal neighbor
             problem::NeighborReturn::Internal(i_n, i_f, _) => {
-                let f = &problem.mesh.faces[i_f];
+                let f = &problem.mesh.faces.get_face(i_f);
                 let i_up = problem.cell_properties.upwind(i_p, i_n, f.out_normal(i_p));
                 let u_upwind = problem.cell_properties.u.column(i_up);
                 advective_flux -= 0.5 * u_upwind.dot(&u_upwind) * f.area * f.out_normal(i_p);
@@ -158,5 +160,5 @@ pub fn burgers_equation(problem: &problem::Problem<Properties>, i_p: usize) -> D
             }
         }
     }
-    advective_flux / problem.mesh.cells.volume[i_p]
+    advective_flux /= problem.mesh.cells.volume[i_p];
 }

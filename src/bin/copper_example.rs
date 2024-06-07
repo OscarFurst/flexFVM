@@ -1,6 +1,6 @@
+use flex_fvm::solver::SolverStrategy;
 use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
 use nalgebra::{dvector, DVector, Point3, RowDVector};
-use std::fmt;
 
 fn main() {
     let initial_mesh = create_mesh();
@@ -14,7 +14,7 @@ fn main() {
         &initial_mesh,
         0.01,
         0.0000002,
-        solver::euler_explicit::<Properties>,
+        solver::EulerExplicitSolver::new(&initial_mesh),
         output_args,
     );
 }
@@ -34,26 +34,26 @@ pub struct Properties {
     pub lambda: RowDVector<f64>, // W/m/k
 }
 
-impl fmt::Debug for Properties {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.T)
-    }
-}
-
 impl HasProperties for Properties {
+    fn new(size: usize) -> Self {
+        if size == 0 {
+            return Properties {
+                T: RowDVector::from(Vec::new()),
+                rho: RowDVector::from(Vec::new()),
+                cp: RowDVector::from(Vec::new()),
+                lambda: RowDVector::from(Vec::new()),
+            };
+        }
+        Properties {
+            T: RowDVector::from_element(size, 0.),
+            rho: RowDVector::from_element(size, 0.),
+            cp: RowDVector::from_element(size, 0.),
+            lambda: RowDVector::from_element(size, 0.),
+        }
+    }
+
     fn export(&self) -> Vec<(String, Vec<f64>)> {
         vec![("T".to_string(), self.T.data.as_slice().to_vec())]
-    }
-}
-
-impl Default for Properties {
-    fn default() -> Self {
-        Properties {
-            T: RowDVector::from(Vec::new()),
-            rho: RowDVector::from(Vec::new()),
-            cp: RowDVector::from(Vec::new()),
-            lambda: RowDVector::from(Vec::new()),
-        }
     }
 }
 
@@ -74,7 +74,8 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let heat_diffusion_equations = Equation {
         get: Properties::get_T,
         lhs: Properties::update_T,
-        rhs: heat_diffusion,
+        source: Some(heat_diffusion),
+        flux: None,
         dimension: 1,
     };
     // define the boundary conditions
@@ -124,28 +125,32 @@ impl Properties {
     }
 }
 
-pub fn heat_diffusion(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
-    let mut flux = 0.;
+pub fn heat_diffusion(
+    problem: &problem::Problem<Properties>,
+    i_p: usize,
+    output: &mut DVector<f64>,
+) {
+    let flux = &mut output[0];
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             problem::NeighborReturn::Internal(i_n, i_f, distance) => {
-                let f = &problem.mesh.faces[i_f];
-                flux -= problem.cell_properties.lambda[i_p]
+                let f = &problem.mesh.faces.get_face(i_f);
+                *flux -= problem.cell_properties.lambda[i_p]
                     * (problem.cell_properties.T[i_p] - problem.cell_properties.T[i_n])
                     / distance
                     * f.area;
             }
             problem::NeighborReturn::Boundary(name, i_f, distance, values) => {
-                let f = &problem.mesh.faces[i_f];
+                let f = &problem.mesh.faces.get_face(i_f);
                 match name {
                     "dirichlet" => {
-                        flux -= problem.cell_properties.lambda[i_p]
+                        *flux -= problem.cell_properties.lambda[i_p]
                             * (problem.cell_properties.T[i_p] - values[0])
                             / distance
                             * f.area;
                     }
                     "neumann" => {
-                        flux -= values[0] * f.area;
+                        *flux -= values[0] * f.area;
                     }
                     _ => {
                         panic!("Unknown boundary condition : {}", name);
@@ -157,9 +162,7 @@ pub fn heat_diffusion(problem: &problem::Problem<Properties>, i_p: usize) -> DVe
             }
         }
     }
-    dvector![
-        flux / problem.mesh.cells.volume[i_p]
-            / problem.cell_properties.rho[i_p]
-            / problem.cell_properties.cp[i_p]
-    ]
+    *flux /= problem.mesh.cells.volume[i_p]
+        * problem.cell_properties.rho[i_p]
+        * problem.cell_properties.cp[i_p]
 }

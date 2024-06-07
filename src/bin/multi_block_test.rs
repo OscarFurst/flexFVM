@@ -1,6 +1,6 @@
+use flex_fvm::solver::SolverStrategy;
 use flex_fvm::{computational_cell::HasProperties, equation::*, problem, solver};
 use nalgebra::{dvector, DVector, Point3, RowDVector};
-use std::fmt;
 use std::time::Instant;
 
 fn main() {
@@ -22,7 +22,7 @@ fn main() {
         &initial_mesh,
         0.001,
         0.000001,
-        solver::euler_explicit::<Properties>,
+        solver::EulerExplicitSolver::new(&initial_mesh),
         output_args,
     );
 }
@@ -42,20 +42,8 @@ pub struct Properties {
     pub lambda: RowDVector<f64>, // W/m/k
 }
 
-impl fmt::Debug for Properties {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.T)
-    }
-}
-
 impl HasProperties for Properties {
-    fn export(&self) -> Vec<(String, Vec<f64>)> {
-        vec![("T".to_string(), self.T.data.as_slice().to_vec())]
-    }
-}
-
-impl Default for Properties {
-    fn default() -> Self {
+    fn new(_size: usize) -> Self {
         Properties {
             T: RowDVector::from(Vec::new()),
             rho: RowDVector::from(Vec::new()),
@@ -63,7 +51,11 @@ impl Default for Properties {
             lambda: RowDVector::from(Vec::new()),
         }
     }
+    fn export(&self) -> Vec<(String, Vec<f64>)> {
+        vec![("T".to_string(), self.T.data.as_slice().to_vec())]
+    }
 }
+
 ///////////////////
 /// Copper data ///
 ///////////////////
@@ -81,7 +73,8 @@ pub fn create_mesh() -> problem::Problem<Properties> {
     let heat_diffusion_equations = Equation {
         get: Properties::get_T,
         lhs: Properties::update_T,
-        rhs: heat_diffusion,
+        source: Some(heat_diffusion),
+        flux: None,
         dimension: 1,
     };
     // define the boundary conditions
@@ -180,28 +173,32 @@ impl Properties {
     }
 }
 
-pub fn heat_diffusion(problem: &problem::Problem<Properties>, i_p: usize) -> DVector<f64> {
-    let mut flux = 0.;
+pub fn heat_diffusion(
+    problem: &problem::Problem<Properties>,
+    i_p: usize,
+    output: &mut DVector<f64>,
+) {
+    let flux = &mut output[0];
     for neighbor in problem.neighbors(i_p) {
         match neighbor {
             problem::NeighborReturn::Internal(i_n, i_f, distance) => {
-                let f = &problem.mesh.faces[i_f];
-                flux -= problem.cell_properties.lambda[i_p]
+                let f = &problem.mesh.faces.get_face(i_f);
+                *flux -= problem.cell_properties.lambda[i_p]
                     * (problem.cell_properties.T[i_p] - problem.cell_properties.T[i_n])
                     / distance
                     * f.area;
             }
             problem::NeighborReturn::Boundary(name, i_f, distance, values) => {
-                let f = &problem.mesh.faces[i_f];
+                let f = &problem.mesh.faces.get_face(i_f);
                 match name {
                     "dirichlet" => {
-                        flux -= problem.cell_properties.lambda[i_p]
+                        *flux -= problem.cell_properties.lambda[i_p]
                             * (problem.cell_properties.T[i_p] - values[0])
                             / distance
                             * f.area;
                     }
                     "neumann" => {
-                        flux -= values[0] * f.area;
+                        *flux -= values[0] * f.area;
                     }
                     _ => {
                         panic!("Unknown boundary condition : {}", name);
@@ -213,9 +210,7 @@ pub fn heat_diffusion(problem: &problem::Problem<Properties>, i_p: usize) -> DVe
             }
         }
     }
-    dvector![
-        flux / problem.mesh.cells.volume[i_p]
-            / problem.cell_properties.rho[i_p]
-            / problem.cell_properties.cp[i_p]
-    ]
+    *flux /= problem.mesh.cells.volume[i_p]
+        * problem.cell_properties.rho[i_p]
+        * problem.cell_properties.cp[i_p];
 }

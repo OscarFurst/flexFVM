@@ -61,3 +61,8 @@ meshing of copper case (4000 cells) : 486 ms, 491 ms, 492 ms
 Change data structure (and store solution vector as actual DVector instead of Vec<Dvector<f64>>):
 for 1000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh :  -  645 ms, 622 ms, 622 ms (release)
 meshing of copper case (4000 cells) : 528 ms, 525 ms, 550 ms
+
+After interpolation and face flux equation implementation:
+for 1000 iterations (0.001s with 0.000001s step) on a 100x1x40 mesh :  -  567 ms, 569 ms (release)
+meshing of copper case (4000 cells) : 1034 ms, 1072 ms
+This can probably be improved by removing the loop through "face equations".

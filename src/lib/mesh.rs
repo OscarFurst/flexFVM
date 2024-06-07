@@ -1,6 +1,10 @@
-use crate::computational_cell::{CellData, Face, NeighborType};
-use crate::geometry_utils::{polyhedron_center, polyhedron_volume};
+use crate::computational_cell::{CellData, FaceMut, Faces, NeighborType};
+use crate::geometry_utils::{
+    barycentric_coordinates, line_plane_intersection, polyhedron_center, polyhedron_volume,
+};
+use itertools::Itertools;
 use nalgebra::{Point3, Vector3};
+use std::collections::{HashMap, HashSet};
 
 /// The mesh owns all geometrical features:
 /// - vertices: points in space at the corners of computational cells
@@ -9,16 +13,23 @@ use nalgebra::{Point3, Vector3};
 #[derive(Clone)]
 pub struct Mesh {
     pub vertices: Vec<Point3<f64>>,
-    pub faces: Vec<Face>,
+    pub faces: Faces,
     pub cells: CellData,
+    pub periodic_pairs: HashMap<usize, usize>,
+    pub periodic_unpaired: HashSet<usize>,
+    // optional, needs to be initialized with "collect_vertex_cells" before use
+    pub vertex_cells: Vec<Vec<usize>>,
 }
 
 impl Mesh {
     pub fn new() -> Self {
         Mesh {
             vertices: Vec::new(),
-            faces: Vec::new(),
+            faces: Faces::new(),
             cells: CellData::default(),
+            periodic_pairs: HashMap::new(),
+            periodic_unpaired: HashSet::new(),
+            vertex_cells: Vec::new(),
         }
     }
 
@@ -36,6 +47,16 @@ impl Mesh {
             .rev()
             .position(|v| (v - r).norm() < f64::EPSILON)?;
         Some(self.vertices.len() - 1 - return_value)
+    }
+    /// Creates a new face from a list of point indices and initialize its basic geometrical properties.
+    /// The properties relating to the neighbour need to be initialized later.
+    pub fn add_face_from_vertices(&mut self, vertex_indices: &[usize]) -> usize {
+        let vertex_coorinates: &[Point3<f64>] = &vertex_indices
+            .iter()
+            .map(|i_vertex| self.vertices[*i_vertex])
+            .collect::<Vec<Point3<f64>>>();
+        self.faces
+            .add_from_vertices(vertex_coorinates, vertex_indices)
     }
 
     pub fn add_hex_cell(&mut self, r1: Point3<f64>, r2: Point3<f64>, zone: usize) -> usize {
@@ -127,28 +148,28 @@ impl Mesh {
         let mut cell_faces = Vec::with_capacity(6);
         for vertices in current_faces.iter() {
             let mut found = false;
-            for (index, face) in self.faces.iter_mut().enumerate() {
+            for i_f in 0..self.faces.len() {
+                let face = self.faces.get_face_mut(i_f);
                 // WARNING : this assumes that no crazy face with a different number of vertices exists
                 if face.vertices.iter().all(|p| vertices.contains(p)) {
-                    cell_faces.push(index);
-                    let face_distance = (face.center - cell_center).norm();
-                    face.neighbor = NeighborType::Internal(cell_index, face_distance);
+                    cell_faces.push(i_f);
+                    let face_distance = (*face.center - cell_center).norm();
+                    *face.neighbor = NeighborType::Internal(cell_index, face_distance);
                     found = true;
                     break;
                 }
             }
             if !found {
-                let mut face = Face::new(self, vertices);
-                let face_distance = (face.center - cell_center).norm();
+                let i_f = self.add_face_from_vertices(vertices);
+                let face_distance = (self.faces.center[i_f] - cell_center).norm();
                 // face normal points from the owner to the neighbour
-                face.owner = (cell_index, face_distance);
-                cell_faces.push(self.faces.len());
-                self.faces.push(face);
+                self.faces.owner[i_f] = (cell_index, face_distance);
+                cell_faces.push(i_f);
             }
         }
         // check if the faces are correctly oriented, meaning that the face normals point outwards of the owner and inwards of the neighbour
-        for i_face in cell_faces.iter() {
-            let face = &self.faces[*i_face];
+        for &i_face in cell_faces.iter() {
+            let face = self.faces.get_face(i_face);
             let to_face = face.center - cell_center;
             if cell_index == face.owner.0 {
                 if to_face.dot(&face.normal) < 0. {
@@ -170,7 +191,7 @@ impl Mesh {
     pub fn new_cell(&mut self, faces: Vec<usize>, zone: usize) {
         let mut vertex_indices: Vec<usize> = faces
             .iter()
-            .flat_map(|i_face| self.faces[*i_face].vertices.clone())
+            .flat_map(|&i_face| self.faces.vertices[i_face].clone())
             .collect();
         vertex_indices.sort();
         vertex_indices.dedup();
@@ -188,12 +209,23 @@ impl Mesh {
         point: &Point3<f64>,
         normal: &Vector3<f64>,
         cell_index: usize,
-    ) -> Option<&mut Face> {
+    ) -> Option<FaceMut> {
+        match self.get_face_id_on_plane(point, normal, cell_index) {
+            Some(i_f) => Some(self.faces.get_face_mut(i_f)),
+            None => None,
+        }
+    }
+
+    pub fn get_face_id_on_plane(
+        &mut self,
+        point: &Point3<f64>,
+        normal: &Vector3<f64>,
+        cell_index: usize,
+    ) -> Option<usize> {
         // find the face that is on the plane defined by the point and normal
-        for face_index in self.cells.faces[cell_index].iter() {
-            let face = &self.faces[*face_index];
-            if (face.center - point).dot(normal).abs() < f64::EPSILON {
-                return Some(&mut self.faces[*face_index]);
+        for &i_f in self.cells.faces[cell_index].iter() {
+            if (self.faces.center[i_f] - point).dot(normal).abs() < f64::EPSILON {
+                return Some(i_f);
             }
         }
         None // Return None if no face is found
@@ -203,14 +235,125 @@ impl Mesh {
         // returns the points of the faces
         faces
             .iter()
-            .map(|i_face| {
-                self.faces[*i_face]
-                    .vertices
+            .map(|&i_face| {
+                self.faces.vertices[i_face]
                     .iter()
                     .map(|i_vertex| self.vertices[*i_vertex])
                     .collect::<Vec<Point3<f64>>>()
             })
             .collect::<Vec<Vec<Point3<f64>>>>()
+    }
+
+    /// initialized the "vertex_cells" field of the mesh with the list of vertices that are part of each cell
+    pub fn collect_cell_vertices(&mut self) {
+        self.cells.vertices.reserve(self.n_cells());
+        for list_of_faces in self.cells.faces.iter() {
+            self.cells.vertices.push(
+                list_of_faces
+                    .iter()
+                    .flat_map(|&i_face| self.faces.vertices[i_face].clone())
+                    .collect::<HashSet<usize>>(),
+            )
+        }
+    }
+
+    /// initialized the "vertex_cells" field of the mesh with the list of cells that contain each vertex
+    pub fn collect_vertex_cells(&mut self) {
+        if self.cells.vertices.is_empty() {
+            self.collect_cell_vertices();
+        }
+        self.vertex_cells = vec![Vec::new(); self.vertices.len()];
+        for (i_cell, vertices) in self.cells.vertices.iter().enumerate() {
+            for &i_vertex in vertices.iter() {
+                self.vertex_cells[i_vertex].push(i_cell);
+            }
+        }
+    }
+
+    /// returns a list of cells that have at least one vertex in common with the cell i_cell
+    /// the "vertex_cells" field of the mesh must be initialized before calling this function
+    pub fn extended_neighborhood(&self, i_cell: usize) -> Vec<usize> {
+        let mut neighbor_set = HashSet::new();
+        let cell_vertices = &self.cells.vertices[i_cell];
+        for &i_vertex in cell_vertices.iter() {
+            for &i_neighbor in self.vertex_cells[i_vertex].iter() {
+                neighbor_set.insert(i_neighbor);
+            }
+        }
+        neighbor_set.remove(&i_cell);
+        neighbor_set.into_iter().collect()
+    }
+
+    // TODO : maybe the return type should be a struct?
+    pub fn extended_neighborhood_periodic(&self, i_cell: usize) -> Vec<(usize, Vector3<f64>)> {
+        // first, same as above
+        let mut neighbor_set = HashMap::new();
+        let cell_vertices = &self.cells.vertices[i_cell];
+        for &i_vertex in cell_vertices.iter() {
+            for &i_neighbor in self.vertex_cells[i_vertex].iter() {
+                neighbor_set.insert(i_neighbor, Vector3::zeros());
+            }
+        }
+        // then, we add the periodic neighbors
+        for &i_f in self.cells.faces[i_cell].iter() {
+            if let Some(&i_nf) = self.periodic_pairs.get(&i_f) {
+                // all the cells that share vertices with i_nf are periodic neighbors!
+                // adding the shift to the neighbor coordinates displaces the neighbor to the periodic position
+                let shift = self.faces.center[i_f] - self.faces.center[i_nf];
+                for &i_vertex in self.faces.vertices[i_nf].iter() {
+                    for &i_neighbor in self.vertex_cells[i_vertex].iter() {
+                        neighbor_set.insert(i_neighbor, shift);
+                    }
+                }
+            }
+        }
+        neighbor_set.remove(&i_cell);
+        neighbor_set.into_iter().collect()
+    }
+
+    /// interpolates a point "P" on the line between "Mij" and "Bi" using barycentric interpolation
+    /// of points in the sorted list of neighbors. The first points in the list are prioritized,
+    /// and if more than 3 points are provided, the subsequent points are only used if the line does not
+    /// intersect the triangle defined by the first 3 points.
+    /// The result is a list of tuples ((i_r, shift), coord) with the index of the points used for interpolation,
+    /// their periodic shift (zero for "normal" points) and their corresponding barycentric coordinates.
+    #[allow(non_snake_case)]
+    pub fn best_barycentric_interpolation(
+        &self,
+        Mij: &Point3<f64>,
+        Bi: &Point3<f64>,
+        // the Vector3 in the list of neighbors is the shift to apply to the neighbor to get the periodic position
+        sorted_list_of_neighbors: &[(usize, Vector3<f64>)],
+    ) -> Option<[((usize, Vector3<f64>), f64); 3]> {
+        for list in sorted_list_of_neighbors
+            .iter()
+            .enumerate()
+            // we consider all combinations of 3 points and sort them by the sum of their indices
+            .combinations(3)
+            .sorted_by(|a, b| {
+                Ord::cmp(
+                    &a.iter().map(|a| a.0).sum::<usize>(),
+                    &b.iter().map(|b| b.0).sum::<usize>(),
+                )
+            })
+        {
+            // TODO : clean up the "list" situation
+            let B1 = self.cells.r[list[0].1 .0] + list[0].1 .1;
+            let B2 = self.cells.r[list[1].1 .0] + list[1].1 .1;
+            let B3 = self.cells.r[list[2].1 .0] + list[2].1 .1;
+            let plane_normal = (B2 - B1).cross(&(B3 - B1));
+            // compute the intersection of BiMij with the plane defined by the three points
+            if let Some(H) = line_plane_intersection(Mij, Bi, &B1, &plane_normal) {
+                // we compute the barycentric coordinates of H in the triangle B1B2B3
+                let (alpha, beta, gamma) = barycentric_coordinates(&B1, &B2, &B3, &H);
+                // check if the point is in the triangle
+                if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
+                    // we have found the point H, now we can interpolate the properties of the point
+                    return Some([(*list[0].1, alpha), (*list[1].1, beta), (*list[2].1, gamma)]);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -235,10 +378,10 @@ mod tests {
         assert_eq!(mesh.faces.len(), 6);
         assert_eq!(mesh.cells.faces[0].len(), 6);
         mesh.cells.faces[0].iter().for_each(|i_face| {
-            let face = &mesh.faces[*i_face];
+            let face = mesh.faces.get_face(*i_face);
             assert_eq!(face.owner.0, 0);
             assert_eq!(face.owner.1, 0.5);
-            assert_eq!(face.area, 1.0);
+            assert_eq!(*face.area, 1.0);
             // check that the face is a convex polygon with sorted vertices
             assert!(crate::geometry_utils::check_polygon_convexity(
                 face.vertices
@@ -249,7 +392,7 @@ mod tests {
             ));
             // check that any vector from the center to the vertices is normal to the face normal
             for i in 0..face.vertices.len() {
-                let v = &mesh.vertices[face.vertices[i]] - &face.center;
+                let v = &mesh.vertices[face.vertices[i]] - face.center;
                 assert!(v.dot(&face.normal).abs() < f64::EPSILON);
             }
             // check that the normal is pointing outwards of the cell
