@@ -94,6 +94,9 @@ pub fn solve<T: HasProperties, S: SolverStrategy>(
     );
     if output_args.frequency == 0. {
         println!("Exporting results ...");
+        if let Some(parent) = std::path::Path::new(&output_args.filename).parent() {
+            std::fs::create_dir_all(parent).expect("Not able to create output directory");
+        }
         problem.export_to_vtk(format!("{}.vtk", &output_args.filename).as_str());
     }
     problem

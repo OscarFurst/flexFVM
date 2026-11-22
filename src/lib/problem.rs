@@ -836,7 +836,9 @@ mod tests {
             lambda: RowDVector::from_vec(vec![1.]),
         };
 
-        problem.export_to_vtk("single_cell_mesh.vtk");
+        let dir = format!("{}/results/unit_tests", env!("CARGO_MANIFEST_DIR"));
+        std::fs::create_dir_all(&dir).unwrap();
+        problem.export_to_vtk(&format!("{dir}/single_cell_mesh.vtk"));
     }
 
     #[test]
@@ -858,6 +860,8 @@ mod tests {
             cp: RowDVector::from_vec(vec![1000., 1000.]),
             lambda: RowDVector::from_vec(vec![1., 1.]),
         };
-        problem.export_to_vtk("double_cell_mesh.vtk");
+        let dir = format!("{}/results/unit_tests", env!("CARGO_MANIFEST_DIR"));
+        std::fs::create_dir_all(&dir).unwrap();
+        problem.export_to_vtk(&format!("{dir}/double_cell_mesh.vtk"));
     }
 }
